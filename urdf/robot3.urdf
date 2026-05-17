@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="robot3">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="5.55111512312578E-17 5.80271687999765E-18 0.00283872056182332"
+        rpy="0 0 0" />
+      <mass
+        value="0.0225229904346861" />
+      <inertia
+        ixx="8.37056061961124E-06"
+        ixy="-1.0500945017068E-21"
+        ixz="-3.86077175203684E-22"
+        iyy="2.30939111612294E-05"
+        iyz="6.34539388224074E-23"
+        izz="3.13245794491849E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="slid_base">
+    <inertial>
+      <origin
+        xyz="0.03293 7.3319E-05 0.016441"
+        rpy="0 0 0" />
+      <mass
+        value="0.419" />
+      <inertia
+        ixx="0.00012885"
+        ixy="9.8048E-10"
+        ixz="-6.3248E-05"
+        iyy="0.018638"
+        iyz="2.8316E-08"
+        izz="0.018707" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/slid_base.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/slid_base.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="slid_base"
+    type="revolute">
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="slid_base" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="slid_M">
+    <inertial>
+      <origin
+        xyz="0.011909 5.7707E-06 0.070791"
+        rpy="0 0 0" />
+      <mass
+        value="0.37287" />
+      <inertia
+        ixx="0.00025244"
+        ixy="1.6367E-12"
+        ixz="-5.0562E-07"
+        iyy="0.00045632"
+        iyz="1.2454E-11"
+        izz="0.00049741" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/slid_M.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.45294 0.45294 0.45294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/slid_M.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="slid_M"
+    type="prismatic">
+    <origin
+      xyz="-0.213 0 0.0195"
+      rpy="0 0 0" />
+    <parent
+      link="slid_base" />
+    <child
+      link="slid_M" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="0"
+      upper="1"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="lian">
+    <inertial>
+      <origin
+        xyz="0.39451 1.395E-06 7.3868E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.002553" />
+      <inertia
+        ixx="6.1777E-09"
+        ixy="-4.6431E-12"
+        ixz="1.683E-12"
+        iyy="4.6367E-05"
+        iyz="4.4792E-12"
+        izz="4.6367E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/lian.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.25294 0.25294 0.25294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/lian.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lian"
+    type="fixed">
+    <origin
+      xyz="0.0488 0 0.074501"
+      rpy="0 0 0" />
+    <parent
+      link="slid_M" />
+    <child
+      link="lian" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="qudong1">
+    <inertial>
+      <origin
+        xyz="-0.063927 0.048608 -3.0208E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.1841" />
+      <inertia
+        ixx="7.0872E-05"
+        ixy="-5.4561E-07"
+        ixz="-1.5601E-08"
+        iyy="0.00027674"
+        iyz="-2.1542E-09"
+        izz="0.00021794" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/qudong1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.85294 0.85294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/qudong1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="qudong1"
+    type="fixed">
+    <origin
+      xyz="0.0488 0 0.074501"
+      rpy="0 0 0" />
+    <parent
+      link="slid_M" />
+    <child
+      link="qudong1" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="qudong2">
+    <inertial>
+      <origin
+        xyz="-0.063928 -0.048605 -1.6291E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.18408" />
+      <inertia
+        ixx="7.0848E-05"
+        ixy="5.4564E-07"
+        ixz="1.7044E-08"
+        iyy="0.00027665"
+        iyz="-2.9497E-08"
+        izz="0.00021787" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/qudong2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.85294 0.85294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://robot3/meshes/qudong2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="qudong2"
+    type="fixed">
+    <origin
+      xyz="0.0488 0 0.074501"
+      rpy="0 0 0" />
+    <parent
+      link="slid_M" />
+    <child
+      link="qudong2" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>

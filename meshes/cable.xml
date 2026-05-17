@@ -1,0 +1,133 @@
+
+<mujoco model="Cable">
+  <include file="scene.xml"/>
+   <option timestep="0.0001" tolerance="1e-6" impratio="1e2"/>
+
+  <extension>
+    <plugin plugin="mujoco.elasticity.cable"/>
+  </extension>
+
+
+
+  <compiler autolimits="true"/>
+
+  <!-- <size memory="2M"/> -->
+
+
+  <worldbody>
+    
+    <body pos="0.05 0 1" name="softbox1">
+        <freejoint />
+        <geom size=".1" contype="0" conaffinity="0" group="4" mass="1" />
+        <flexcomp name="softbox1" type="box" dim="3" count="3 3 3"
+            spacing=".01 .01 .01"
+            radius="0.001"  dof="radial" mass=".01">
+            <contact internal="false" selfcollide="none" />
+            <edge equality="true" />
+        </flexcomp>
+    </body>
+
+    <body pos="-0.2 0 1" name="box1">
+        <freejoint />
+        <geom type="box" size="0.02 0.02 0.02" mass="2" rgba="1 0 0 1" condim="3" contype="1" conaffinity="1" group="1"/>
+    </body>
+
+    <body name="cable_stiff" pos="-0.50 0 .6">
+      <!-- <freejoint /> -->
+      <composite prefix="cable_stiff" type="cable" curve="s" count="21 1 1"  size="0.5 "  initial="none">
+        <plugin plugin="mujoco.elasticity.cable">
+        <!-- 高刚度弹性参数（远大于原有绳） -->
+          <config key="twist" value="1e7"/>    <!-- 扭转刚度提升 -->
+          <config key="bend" value="5e9"/>     <!-- 弯曲刚度提升 -->
+          <config key="vmax" value="1"/>
+        </plugin>
+        <!-- 主关节刚度提升（stiffness=10 > 原有3） -->
+        <joint kind="main" damping="10" stiffness="500" armature="0.01"/>
+        <geom type="cylinder" size=".003"  rgba=".8 .2 .1 1" condim="3"/>
+      </composite>
+
+    </body>
+
+    <body name="cable" pos="0 0 .6">
+      <freejoint />
+      <composite type="cable" curve="s" count="21 1 1"  size="0.05 "  initial="none">
+        <plugin plugin="mujoco.elasticity.cable">
+          <!-- Units are in Pa (SI) -->
+          <config key="twist" value="5e6"/>
+          <config key="bend" value="15e4"/>
+          <config key="vmax" value=".1"/>
+        </plugin>
+        <joint kind="main" damping="0.3" stiffness = "3" armature="0.01"/>
+        <geom type="cylinder" size=".003"  rgba=".8 .2 .1 1" condim="3"/>
+      </composite>
+
+    </body>
+
+    <body name="slider" pos="0.05 0 .600">
+      <!-- <joint type="free" axis="1 0 0"  damping="1" name="slider_joint"/> -->
+      <geom size=".001" mass="1e-6" rgba="0 0 0 0" contype="0" conaffinity="0"/>
+      <joint type="free"  name="slider_joint"/> 
+      <!-- 2. 电缆末端体：绑定6个圆周分布的site -->
+      <body name="end_6" pos="0 0 0">
+        <!-- <joint type="free" damping="1" name="end_6_joint" pos="0 0 0"/>  -->
+        <geom name="end_6_mass_geom" type="sphere" size="1e-4" mass="1e-6" rgba="0 0 0 0" contype="0" conaffinity="0"/>
+          <site name="s1" pos="0  0.003 0"        size="0.0005" rgba="1 0 0 1"/> 
+          <site name="s2" pos="0  0.0015 0.002595" size="0.0005" rgba="1 1 0 1"/> 
+          <site name="s3" pos="0 -0.0015 0.002595" size="0.0005" rgba="0 1 0 1"/> 
+          <site name="s4" pos="0 -0.003 0"        size="0.0005" rgba="0 1 1 1"/> 
+          <site name="s5" pos="0 -0.0015 -0.002595" size="0.0005" rgba="0 0 1 1"/> 
+          <site name="s6" pos="0  0.0015 -0.002595" size="0.0005" rgba="1 0 1 1"/>
+      </body>
+    </body>
+
+
+  </worldbody>
+
+  <equality>
+    <weld  name="right_boundary" body1="B_last" body2="slider" anchor="0 0 0"   
+            solimp="0.99 1.0 0.0001" solref="0.0001 1.0"/>  
+    <weld  name="right_boundary1" body1="B_first" body2="cable_stiffB_last" anchor="0 0 0"   
+            solimp="0.99 1.0 0.0001" solref="0.0001 1.0"/> 
+  </equality>
+  <equality>
+    <!-- s1与B_last焊接 -->
+    <weld name="right_boundary_s1" body1="end_6" body2="B_last" anchor="0  0.003 0"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s2与B_last焊接 -->
+    <weld name="right_boundary_s2" body1="end_6" body2="B_last" anchor="0  0.0015 0.002595"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s3与B_last焊接 -->
+    <weld name="right_boundary_s3" body1="end_6" body2="B_last" anchor="0 -0.0015 0.002595"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s4与B_last焊接 -->
+    <weld name="right_boundary_s4" body1="end_6" body2="B_last" anchor="0 -0.003 0"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s5与B_last焊接 -->
+    <weld name="right_boundary_s5" body1="end_6" body2="B_last" anchor="0 -0.0015 -0.002595"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s6与B_last焊接 -->
+    <weld name="right_boundary_s6" body1="end_6" body2="B_last" anchor="0  0.0015 -0.002595"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+</equality>
+
+  <contact>
+    <exclude body1="B_last" body2="slider" />
+  </contact>
+
+  <actuator>
+    <motor site="S_last" gear="0 0 1 0 0 0" ctrlrange="-100 100"/>
+    <motor site="S_last" gear="0 1 0 0 0 0" ctrlrange="-100 100"/>
+  </actuator>
+
+  <actuator>
+    <!-- 1. 控制X轴平移（力控制） -->
+    <motor name="end_6_joint" joint="slider_joint"  gear="0 0 1 0 0 0" ctrlrange="-100 100"/>    
+    <position  name="x_trans_motor1" joint="slider_joint" gear="0 0 1 0 0 0" kp="1000" ctrlrange="-1 1" />
+  </actuator>
+</mujoco>

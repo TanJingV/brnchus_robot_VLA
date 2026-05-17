@@ -1,0 +1,151 @@
+<mujoco model="Cable_Tendons_LengthControl_Resized">
+  <include file="scene.xml"/>
+  
+  <option timestep="0.0002" integrator="RK4" gravity="0 0 0" tolerance="1e-6" impratio="1e2"/>
+
+  <extension>
+    <plugin plugin="mujoco.elasticity.cable"/>
+  </extension>
+
+  <compiler autolimits="true"/>
+
+  <!-- <visual>
+    <headlight diffuse="0.6 0.6 0.6"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+  </visual> -->
+
+  <worldbody>
+    <light pos="0 0 1" dir="0 0 -1" diffuse="1 1 1"/>
+    <geom name="floor1" pos="0 0 0" size="2 2 .1" type="plane" rgba="0.2 0.2 0.2 1"/>
+
+    <body name="base_plate" pos="-0.5 0 0.6">
+      <geom type="cylinder" size="0.004 0.001" rgba=".5 .5 .5 1" euler="0 90 0"/>
+      <site name="base_s1" pos="0  0.003 0"        size="0.001" rgba="1 0 0 1"/> 
+      <site name="base_s2" pos="0  0.0015 0.002595" size="0.001" rgba="1 1 0 1"/> 
+      <site name="base_s3" pos="0 -0.0015 0.002595" size="0.001" rgba="0 1 0 1"/> 
+      <site name="base_s4" pos="0 -0.003 0"        size="0.001" rgba="0 1 1 1"/> 
+      <site name="base_s5" pos="0 -0.0015 -0.002595" size="0.001" rgba="0 0 1 1"/> 
+      <site name="base_s6" pos="0  0.0015 -0.002595" size="0.001" rgba="1 0 1 1"/>
+    </body>
+
+    <body name="cable_stiff" pos="-0.50 0 .6">
+      <composite prefix="cable_stiff" type="cable" curve="s" count="21 1 1"  size="0.65"  initial="none">
+        <plugin plugin="mujoco.elasticity.cable">
+          <config key="twist" value="1e7"/>    
+          <config key="bend" value="5e9"/>     
+          <config key="vmax" value="1"/>
+        </plugin>
+        <joint kind="main" damping="10" stiffness="500" armature="0.01"/>
+        <geom type="cylinder" size=".0036"  rgba=".8 .2 .1 1" condim="3"/>
+      </composite>
+    </body>
+
+    <body name="cable" pos="0.15 0 .6">
+    <freejoint />
+      <composite type="cable" curve="s" count="21 1 1"  size="0.065"  initial="none">
+        <plugin plugin="mujoco.elasticity.cable">
+          <config key="twist" value="5e6"/>
+          <config key="bend" value="15e4"/>
+          <config key="vmax" value=".1"/>
+        </plugin>
+        <joint kind="main" damping="0.3" stiffness = "3" armature="0.01"/>
+        <geom type="cylinder" size=".0035"  rgba=".8 .2 .1 1" condim="3"/>
+      </composite>
+    </body>
+
+    <body name="slider" pos="0.215 0 .600">
+      <joint type="free" name="slider_joint"/> 
+      <geom size=".001" mass="1e-6" rgba="0 0 0 0" contype="0" conaffinity="0"/>
+      <body name="end_6" pos="0 0 0">
+        <geom name="end_6_mass_geom" type="sphere" size="1e-4" mass="1e-6" rgba="0 0 0 0" contype="0" conaffinity="0"/>
+          <site name="s1" pos="0  0.003 0"        size="0.0005" rgba="1 0 0 1"/> 
+          <site name="s2" pos="0  0.0015 0.002595" size="0.0005" rgba="1 1 0 1"/> 
+          <site name="s3" pos="0 -0.0015 0.002595" size="0.0005" rgba="0 1 0 1"/> 
+          <site name="s4" pos="0 -0.003 0"        size="0.0005" rgba="0 1 1 1"/> 
+          <site name="s5" pos="0 -0.0015 -0.002595" size="0.0005" rgba="0 0 1 1"/> 
+          <site name="s6" pos="0  0.0015 -0.002595" size="0.0005" rgba="1 0 1 1"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <equality>
+    <weld name="right_boundary" body1="B_last" body2="slider" anchor="0 0 0" solimp="0.99 1.0 0.0001" solref="0.0001 1.0"/>  
+    <weld name="right_boundary1" body1="B_first" body2="cable_stiffB_last" anchor="0 0 0" solimp="0.99 1.0 0.0001" solref="0.0001 1.0"/> 
+  </equality>
+
+  <equality>
+    <!-- s1与B_last焊接 -->
+    <weld name="right_boundary_s1" body1="end_6" body2="B_last" anchor="0  0.003 0"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s2与B_last焊接 -->
+    <weld name="right_boundary_s2" body1="end_6" body2="B_last" anchor="0  0.0015 0.002595"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s3与B_last焊接 -->
+    <weld name="right_boundary_s3" body1="end_6" body2="B_last" anchor="0 -0.0015 0.002595"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s4与B_last焊接 -->
+    <weld name="right_boundary_s4" body1="end_6" body2="B_last" anchor="0 -0.003 0"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s5与B_last焊接 -->
+    <weld name="right_boundary_s5" body1="end_6" body2="B_last" anchor="0 -0.0015 -0.002595"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+    <!-- s6与B_last焊接 -->
+    <weld name="right_boundary_s6" body1="end_6" body2="B_last" anchor="0  0.0015 -0.002595"   
+          solimp="0.99 1.0 0.0001" 
+          solref="0.0001 1.0"/>
+</equality>
+
+  <contact>
+    <exclude body1="B_last" body2="slider" />
+  </contact>
+
+  <tendon>
+    <spatial name="tendon1" width="0.0005" rgba="1 0 0 1" limited="true" range="0 0.8">
+        <site site="base_s1"/>
+        <site site="s1"/>
+    </spatial>
+    <spatial name="tendon2" width="0.0005" rgba="1 1 0 1" limited="true" range="0 0.8">
+        <site site="base_s2"/>
+        <site site="s2"/>
+    </spatial>
+    <spatial name="tendon3" width="0.0005" rgba="0 1 0 1" limited="true" range="0 0.8">
+        <site site="base_s3"/>
+        <site site="s3"/>
+    </spatial>
+    <spatial name="tendon4" width="0.0005" rgba="0 1 1 1" limited="true" range="0 0.8">
+        <site site="base_s4"/>
+        <site site="s4"/>
+    </spatial>
+    <spatial name="tendon5" width="0.0005" rgba="0 0 1 1" limited="true" range="0 0.8">
+        <site site="base_s5"/>
+        <site site="s5"/>
+    </spatial>
+    <spatial name="tendon6" width="0.0005" rgba="1 0 1 1" limited="true" range="0 0.8">
+        <site site="base_s6"/>
+        <site site="s6"/>
+    </spatial>
+  </tendon>
+
+  <actuator>
+    <motor site="S_last" gear="0 0 1 0 0 0" ctrlrange="-100 100"/>
+    <motor site="S_last" gear="0 1 0 0 0 0" ctrlrange="-100 100"/>
+
+    <position name="act_t1" tendon="tendon1" kp="100" ctrlrange="0 0.718"/>
+    <position name="act_t2" tendon="tendon2" kp="100" ctrlrange="0 0.718"/>
+    <position name="act_t3" tendon="tendon3" kp="100" ctrlrange="0 0.718"/>
+    <position name="act_t4" tendon="tendon4" kp="100" ctrlrange="0 0.718"/>
+    <position name="act_t5" tendon="tendon5" kp="100" ctrlrange="0 0.718"/>
+    <position name="act_t6" tendon="tendon6" kp="100" ctrlrange="0 0.718"/>
+  </actuator>
+
+  <keyframe>
+    <key name="home" ctrl="0 0 0.718 0.718 0.718 0.718 0.718 0.718"/>
+  </keyframe>
+
+</mujoco>
