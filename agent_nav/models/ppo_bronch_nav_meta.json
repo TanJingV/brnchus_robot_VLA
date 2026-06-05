@@ -1,0 +1,6 @@
+{
+  "xml_path": "E:\\PHD\\Laboratory\\feibu\\brnchus_robot_VLA\\meshes\\cable_robot_bronch_final_seg2.xml",
+  "targets_file": "agent_nav\\target_points.json",
+  "timesteps": 20,
+  "algorithm": "PPO"
+}
