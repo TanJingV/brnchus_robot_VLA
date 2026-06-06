@@ -212,7 +212,7 @@ class MujocoPhysicsControlPanel:
         img[:] = (18, 18, 20)
 
         if cam_img is not None:
-            disp_w, disp_h = 320, 240
+            disp_w, disp_h = 240, 240
             small_cam = cv2.resize(cam_img, (disp_w, disp_h))
             sx, sy = self.simulator.tip_camera_rect[:2]
             img[sy:sy + disp_h, sx:sx + disp_w] = small_cam
@@ -284,11 +284,17 @@ class MujocoDualScopeSimulator:
         self.step_count = 0
         self.viewer = None
         self.physics_panel = None
-        self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+        # Match the square PyVista virtual viewport so both cameras have the
+        # same horizontal and vertical field of view.
+        self.renderer = mujoco.Renderer(self.model, height=480, width=480)
+        self.tip_scene_option = mujoco.MjvOption()
+        self.tip_scene_option.geomgroup[5] = 0
         self.tip_camera_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, MUJOCO_TIP_CAMERA)
-        self.tip_camera_rect = (240, 35, 320, 240)
+        self.tip_camera_rect = (280, 35, 240, 240)
         self.latest_tip_frame_bgr = None
         self.clicked_em_pos = np.zeros(3, dtype=float)
+        self.pick_callback = None
+        self.navigation_path_world_m = np.empty((0, 3), dtype=float)
         self.model_pick_requested = False
         self.viewer_pick_enabled = False
         self._viewer_pick_prev_down = False
@@ -305,6 +311,7 @@ class MujocoDualScopeSimulator:
         self.body_ref_id = self._body_id(["base_plate", "base_link"])
         self.body_scope1_id = self._body_id(["end_6", "slider"])
         self.body_scope2_id = self._body_id(["seg1_B_last", "seg2_body"])
+        self.lung_geom_id = self._find_lung_geom_id()
         self.slider_act_id = self._actuator_id(["act_slid_M"])
         self.cable_act_ids = {
             name: self._actuator_id([f"force_{name}"])
@@ -338,6 +345,57 @@ class MujocoDualScopeSimulator:
                 return aid
         return -1
 
+    def _find_lung_geom_id(self):
+        mesh_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_MESH, "visual_mesh")
+        if mesh_id == -1:
+            return -1
+        matches = np.flatnonzero(np.asarray(self.model.geom_dataid) == mesh_id)
+        return int(matches[0]) if len(matches) else -1
+
+    def _lung_original_model_to_world(self):
+        """Recover the original STL-to-world transform before MuJoCo mesh recentering."""
+        if self.lung_geom_id == -1:
+            raise RuntimeError("MuJoCo 模型中未找到 visual_mesh 肺模型。")
+        mesh_id = int(self.model.geom_dataid[self.lung_geom_id])
+        mesh_rotation = np.zeros(9, dtype=float)
+        mujoco.mju_quat2Mat(mesh_rotation, self.model.mesh_quat[mesh_id])
+        mesh_rotation = mesh_rotation.reshape(3, 3)
+        mesh_position = np.asarray(self.model.mesh_pos[mesh_id], dtype=float)
+
+        compiled_rotation = self.data.geom_xmat[self.lung_geom_id].reshape(3, 3).copy()
+        compiled_position = self.data.geom_xpos[self.lung_geom_id].copy()
+        original_rotation = compiled_rotation @ mesh_rotation.T
+        original_position = compiled_position - original_rotation @ mesh_position
+        return original_rotation, original_position
+
+    def get_lung_auto_registration(self):
+        """Return the exact MuJoCo-world-mm to lung-model-mm rigid transform."""
+        mujoco.mj_forward(self.model, self.data)
+        rotation_model_to_world, position_world_m = self._lung_original_model_to_world()
+        position_world_mm = position_world_m * self.scale_to_mm
+        rotation_world_to_model = rotation_model_to_world.T
+        translation_world_to_model = -rotation_world_to_model @ position_world_mm
+        return rotation_world_to_model, translation_world_to_model
+
+    def model_points_to_world_m(self, points_model_mm):
+        points = np.asarray(points_model_mm, dtype=float).reshape(-1, 3)
+        rotation, position = self._lung_original_model_to_world()
+        return (rotation @ (points / self.scale_to_mm).T).T + position
+
+    def set_navigation_path_model_mm(self, points_model_mm):
+        points = np.asarray(points_model_mm, dtype=float).reshape(-1, 3)
+        if len(points) > 300:
+            indices = np.linspace(0, len(points) - 1, 300).astype(int)
+            points = points[indices]
+        self.navigation_path_model_mm = points.copy()
+        self.navigation_path_world_m = self.model_points_to_world_m(points)
+        self._refresh_viewer_overlays()
+
+    def _refresh_navigation_path_world(self):
+        if hasattr(self, "navigation_path_model_mm") and len(self.navigation_path_model_mm):
+            self.navigation_path_world_m = self.model_points_to_world_m(self.navigation_path_model_mm)
+            self._refresh_viewer_overlays()
+
     def _body_matrix(self, body_id):
         mat = np.eye(4, dtype=float)
         mat[:3, :3] = self.data.xmat[body_id].reshape(3, 3)
@@ -347,10 +405,21 @@ class MujocoDualScopeSimulator:
     def _camera_matrix(self):
         mat = np.eye(4, dtype=float)
         if self.tip_camera_id != -1:
-            mat[:3, :3] = self.data.cam_xmat[self.tip_camera_id].reshape(3, 3)
+            camera_rotation = self.data.cam_xmat[self.tip_camera_id].reshape(3, 3)
+            # MuJoCo cameras look along local -Z. Expose a right-handed probe
+            # frame whose +Z axis follows the bronchoscope viewing direction.
+            mat[:3, :3] = camera_rotation @ np.diag([-1.0, 1.0, -1.0])
             mat[:3, 3] = self.data.cam_xpos[self.tip_camera_id] * self.scale_to_mm
             return mat
         return self._body_matrix(self.body_scope1_id)
+
+    def _seg1_probe_matrix(self):
+        body_mat = self._body_matrix(self.body_scope2_id)
+        body_rotation = body_mat[:3, :3]
+        # Cable bodies extend along local +X. Reorder axes so probe +Z follows
+        # the cable longitudinal direction while preserving a right-handed frame.
+        body_mat[:3, :3] = body_rotation[:, [1, 2, 0]]
+        return body_mat
 
     def _camera_position_mm(self):
         return self._camera_matrix()[:3, 3].copy()
@@ -358,14 +427,20 @@ class MujocoDualScopeSimulator:
     def render_tip_camera(self):
         if self.tip_camera_id == -1:
             return None
-        self.renderer.update_scene(self.data, camera=MUJOCO_TIP_CAMERA)
+        self.renderer.update_scene(
+            self.data,
+            camera=MUJOCO_TIP_CAMERA,
+            scene_option=self.tip_scene_option,
+        )
         rgb = self.renderer.render()
         self.latest_tip_frame_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         return self.latest_tip_frame_bgr
 
-    def set_clicked_em_position_mm(self, point_mm):
+    def set_clicked_em_position_mm(self, point_mm, notify=True):
         self.clicked_em_pos = np.asarray(point_mm, dtype=float).reshape(3)
-        self._update_viewer_pick_marker()
+        self._refresh_viewer_overlays()
+        if notify and callable(self.pick_callback):
+            self.pick_callback(self.clicked_em_pos.copy())
         return True
 
     def enable_viewer_point_picking(self, enabled=True):
@@ -499,26 +574,41 @@ class MujocoDualScopeSimulator:
         if bodyid == -1:
             return False
         self.set_clicked_em_position_mm(selpnt * self.scale_to_mm)
-        self.enable_viewer_point_picking(False)
         return True
 
-    def _update_viewer_pick_marker(self):
+    def _refresh_viewer_overlays(self):
         if self.viewer is None or self.viewer.user_scn is None:
             return
         scn = self.viewer.user_scn
-        scn.ngeom = 1
+        scn.ngeom = 0
         pos_m = np.asarray(self.clicked_em_pos, dtype=float) / self.scale_to_mm
         size = np.array([0.006, 0.006, 0.006], dtype=np.float64)
         mat = np.eye(3, dtype=np.float64).reshape(-1)
         rgba = np.array([0.0, 0.78, 0.75, 1.0], dtype=np.float32)
         mujoco.mjv_initGeom(
-            scn.geoms[0],
+            scn.geoms[scn.ngeom],
             mujoco.mjtGeom.mjGEOM_SPHERE,
             size,
             pos_m,
             mat,
             rgba,
         )
+        scn.ngeom += 1
+
+        path_rgba = np.array([0.0, 0.48, 1.0, 1.0], dtype=np.float32)
+        path_size = np.array([0.0018, 0.0018, 0.0018], dtype=np.float64)
+        for point in self.navigation_path_world_m:
+            if scn.ngeom >= scn.maxgeom:
+                break
+            mujoco.mjv_initGeom(
+                scn.geoms[scn.ngeom],
+                mujoco.mjtGeom.mjGEOM_SPHERE,
+                path_size,
+                np.asarray(point, dtype=np.float64),
+                mat,
+                path_rgba,
+            )
+            scn.ngeom += 1
 
     def step(self, steps=8):
         if self.physics_panel is not None:
@@ -529,8 +619,10 @@ class MujocoDualScopeSimulator:
                 mujoco.mj_step(self.model, self.data)
                 self.step_count += 1
             self.physics_panel.measure_real_angles()
+            self._refresh_navigation_path_world()
             cam_img = self.render_tip_camera()
             if self.viewer is not None and self.viewer.is_running():
+                self._poll_mujoco_viewer_pick()
                 self.viewer.sync()
             self.physics_panel.draw_ui(cam_img)
             cv2.waitKey(1)
@@ -562,7 +654,9 @@ class MujocoDualScopeSimulator:
         for _ in range(max(1, int(steps))):
             mujoco.mj_step(self.model, self.data)
             self.step_count += 1
+        self._refresh_navigation_path_world()
         if self.viewer is not None and self.viewer.is_running():
+            self._poll_mujoco_viewer_pick()
             self.viewer.sync()
         self.render_tip_camera()
 
@@ -572,7 +666,7 @@ class MujocoDualScopeSimulator:
         return {
             self.PORT_SCOPE_1: self._camera_matrix(),
             self.PORT_REF: ref_mat,
-            self.PORT_SCOPE_2: self._body_matrix(self.body_scope2_id),
+            self.PORT_SCOPE_2: self._seg1_probe_matrix(),
         }
 
     def get_axis_values(self):
@@ -743,7 +837,7 @@ class NavigationOverlay(QtWidgets.QWidget):
 
         elif self.status == "GHOST":
             # 说明已清理。
-            pen = QPen(QColor(255, 255, 0))
+            pen = QPen(QColor(0, 122, 255))
             pen.setWidth(3)
             pen.setStyle(Qt.DashLine)
             painter.setPen(pen)
@@ -753,7 +847,7 @@ class NavigationOverlay(QtWidgets.QWidget):
             painter.drawRect(int(tx - s / 2), int(ty - s / 2), s, s)
 
             # 鏂囧瓧
-            painter.setPen(QColor(255, 255, 0))
+            painter.setPen(QColor(0, 122, 255))
             painter.drawText(int(tx + s / 2) + 5, int(ty), "GHOST")
 
         painter.end()
@@ -761,6 +855,7 @@ class NavigationOverlay(QtWidgets.QWidget):
 class SegmentationWorker(QtCore.QObject):
     # 输出完整二值 mask 和候选质心列表，用于 UI 显示与调试。
     resultReady = QtCore.pyqtSignal(object, list)
+    errorOccurred = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
     def __init__(self, weights_path, frame_queue, img_size=400, parent=None):
@@ -794,6 +889,7 @@ class SegmentationWorker(QtCore.QObject):
                 print(f"[严重错误] 模型加载失败: {e}")
                 import traceback
                 traceback.print_exc()
+                self.errorOccurred.emit(str(e))
                 self.finished.emit()
                 return
 
@@ -1226,10 +1322,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.direction = []
         self.R = []
         self.t = []
-        self.scope_pos = None  # 闀滃瓙浣嶇疆 (Port 1 / Handle 10)
-        self.scope_dir = None  # 闀滃瓙濮挎€?
-        self.ref_pos = None  # 鎺㈤拡浣嶇疆 (Port 2 / Handle 11)
+        self.scope_pos = None
+        self.scope_dir = None
+        self.ref_pos = None
         self.virtual_position = []
+        self.calibration_ready = False
+        self.calibration_rmse = None
+        self.calibration_max_error = None
+        self.calibration_residuals = []
+        self.calibration_threshold_mm = 3.0
+        self.auto_simulation_mapping_ready = False
+        self.sim_em_points = []
+        self.sim_em_pick_index = 0
+        self.sim_em_pick_active = False
+        self.sim_candidate_em_point = None
         self.all_points = []
         self.smoothpath = []
         self.endpoint = [50.776901, 144.23911, 39.526905]
@@ -1752,13 +1858,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.mujoco_simulator = MujocoDualScopeSimulator(xml_path, open_viewer=True)
                 self.mujoco_xml_path = xml_path
                 self.is_simulation_mode = True
+                self._reset_simulation_calibration()
+                self.mujoco_simulator.pick_callback = self.on_mujoco_em_point_picked
                 self.sim_toggle_btn.setText("关闭 MuJoCo 仿真")
                 self.sim_status_label.setText(f"当前数据源: MuJoCo ({os.path.basename(xml_path)})")
                 self.ndi_connect_button.setEnabled(False)
                 self.comComboBox.setEnabled(False)
                 self.camera_combo.setEnabled(False)
                 self.actual_view.setText("MuJoCo 仿真模式\ntip_camera 数据流已启用")
-                self.ready_control = True
+                self._enable_automatic_simulation_mapping()
             except Exception as e:
                 self.is_simulation_mode = False
                 self.mujoco_simulator = None
@@ -1769,12 +1877,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 QMessageBox.critical(self, "MuJoCo 仿真启动失败", str(e))
         else:
             if self.mujoco_simulator is not None:
+                self.mujoco_simulator.pick_callback = None
                 try:
                     self.mujoco_simulator.close()
                 except Exception:
                     pass
             self.mujoco_simulator = None
             self.is_simulation_mode = False
+            self.sim_em_pick_active = False
+            self.calibration_ready = False
+            self.auto_simulation_mapping_ready = False
             self.sim_toggle_btn.setText("启用 MuJoCo 仿真")
             self.sim_status_label.setText("当前数据源: 真实环境")
             self.ndi_connect_button.setEnabled(True)
@@ -2205,30 +2317,162 @@ class MainWindow(QtWidgets.QMainWindow):
                 selected_index = i
         self.comComboBox.setCurrentIndex(selected_index)
 
+    def _reset_simulation_calibration(self, clear_model_points=False):
+        self.calibration_ready = False
+        self.calibration_rmse = None
+        self.calibration_max_error = None
+        self.calibration_residuals = []
+        self.sim_em_points = []
+        self.sim_em_pick_index = 0
+        self.sim_em_pick_active = False
+        self.sim_candidate_em_point = None
+        self.auto_simulation_mapping_ready = False
+        self.R = []
+        self.t = []
+        if clear_model_points:
+            for grid in (getattr(self, "coord_labels", []), getattr(self, "coord_labels2", [])):
+                for i, row in enumerate(grid):
+                    for j, label in enumerate(row):
+                        axis = ["X", "Y", "Z"][j]
+                        label.setText(f"P{i + 1}_{axis}: 0")
+        if self.mujoco_simulator is not None:
+            self.mujoco_simulator.enable_viewer_point_picking(False)
+
+    def _enable_automatic_simulation_mapping(self):
+        if not getattr(self, "is_simulation_mode", False) or self.mujoco_simulator is None:
+            return False
+        try:
+            self.R, self.t = self.mujoco_simulator.get_lung_auto_registration()
+            self.calibration_ready = True
+            self.auto_simulation_mapping_ready = True
+            self.ready_control = True
+            self.sim_status_label.setText("MuJoCo 自动同步已启用，无需手工标定")
+            print("MuJoCo 自动模型映射已启用")
+            print("R:", self.R)
+            print("t:", self.t)
+            if len(getattr(self, "smoothpath", [])) > 0:
+                self.mujoco_simulator.set_navigation_path_model_mm(self.smoothpath)
+            return True
+        except Exception as e:
+            self.calibration_ready = False
+            self.auto_simulation_mapping_ready = False
+            self.ready_control = False
+            QMessageBox.warning(self, "自动模型同步失败", str(e))
+            return False
+
+    def _write_em_point_to_labels(self, row_index, point):
+        if not (0 <= row_index < len(self.coord_labels2)):
+            return
+        point = np.asarray(point, dtype=float)
+        point_num = row_index + 1
+        self.coord_labels2[row_index][0].setText(f"P{point_num}_X: {point[0]:.3f}")
+        self.coord_labels2[row_index][1].setText(f"P{point_num}_Y: {point[1]:.3f}")
+        self.coord_labels2[row_index][2].setText(f"P{point_num}_Z: {point[2]:.3f}")
+
+    def _confirm_simulated_em_point(self, row_index):
+        if not self.sim_em_pick_active:
+            return False
+        if row_index != self.sim_em_pick_index:
+            QMessageBox.information(
+                self,
+                "请按顺序记录",
+                f"当前需要确认 E{self.sim_em_pick_index + 1}，请点击“记录标记点 {self.sim_em_pick_index + 1}”。",
+            )
+            return True
+        if self.sim_candidate_em_point is None:
+            QMessageBox.information(
+                self,
+                "尚未选择候选点",
+                f"请先在 MuJoCo viewer 的肺部模型上点击候选 E{self.sim_em_pick_index + 1}。",
+            )
+            return True
+
+        point = np.asarray(self.sim_candidate_em_point, dtype=float)
+        self.sim_em_points.append(point.copy())
+        self._write_em_point_to_labels(row_index, point)
+        print(f"确认 MuJoCo 电磁点 E{row_index + 1}: {point}")
+        self.sim_em_pick_index += 1
+        self.sim_candidate_em_point = None
+
+        if self.sim_em_pick_index < 3:
+            self._prompt_next_mujoco_em_point()
+        else:
+            self.sim_em_pick_active = False
+            if self.mujoco_simulator is not None:
+                self.mujoco_simulator.enable_viewer_point_picking(False)
+            self.plotter.add_text(
+                "E1/E2/E3 已确认完成，正在自动配准...",
+                position="upper_left",
+                font_size=12,
+                color="white",
+                name="mujoco_pick_msg",
+            )
+            self.plotter.render()
+            self.Kabsch_computer()
+        return True
+
+    def _start_simulated_em_calibration_sequence(self):
+        if not getattr(self, "is_simulation_mode", False) or self.mujoco_simulator is None:
+            return False
+        if len(getattr(self, "picked_points", [])) != 3:
+            QMessageBox.warning(self, "标定点不足", "请先在左侧 3D 肺模型中选择 M1/M2/M3。")
+            return False
+        self.sim_em_points = []
+        self.sim_em_pick_index = 0
+        self.sim_em_pick_active = True
+        self.calibration_ready = False
+        self.calibration_residuals = []
+        self.mujoco_simulator.pick_callback = self.on_mujoco_em_point_picked
+        return self.begin_mujoco_em_point_picking()
+
+    def _prompt_next_mujoco_em_point(self):
+        if not self.sim_em_pick_active or self.mujoco_simulator is None:
+            return False
+        if self.sim_em_pick_index >= 3:
+            return False
+        point_name = f"E{self.sim_em_pick_index + 1}"
+        self.sim_status_label.setText(f"MuJoCo 标定采集中: 请点击 {point_name}")
+        self.plotter.add_text(
+            f"请在 MuJoCo viewer 肺部模型上点击候选 {point_name}，确认后点击右侧“记录标记点 {self.sim_em_pick_index + 1}”",
+            position="upper_left",
+            font_size=12,
+            color="white",
+            name="mujoco_pick_msg",
+        )
+        self.plotter.render()
+        self.mujoco_simulator.enable_viewer_point_picking(True)
+        return True
+
     def select_points(self):
         """Enable picking three reference points in the main 3D view."""
-
-
+        if getattr(self, "is_simulation_mode", False):
+            self._reset_simulation_calibration(clear_model_points=True)
         self.picked_points = []
-        # 说明已清理。
+        if hasattr(self, "picked_point_actors"):
+            for actor in self.picked_point_actors:
+                try:
+                    self.plotter.remove_actor(actor)
+                except Exception:
+                    pass
+        self.picked_point_actors = []
         self.point_picker_observer = self.plotter.enable_point_picking(
             callback=self.point_picked_callback,
             show_message=True,
             use_picker=True
         )
-        print("点选择已启用，请在 PyVista 窗口中点击选择点。")
+        print("模型点选择已启用，请在左侧 3D 肺模型中依次点击 M1、M2、M3。")
 
     def point_picked_callback(self, point, *args):
+        if point is None:
+            return
+        point = np.asarray(point, dtype=float)
+        if len(self.picked_points) >= 3:
+            return
         self.picked_points.append(point)
-        print(f"选取的点: {point}")
+        print(f"选取模型点 M{len(self.picked_points)}: {point}")
 
-        # 说明已清理。
-        if not hasattr(self, "picked_point_actors"):
-            self.picked_point_actors = []
-
-        # 说明已清理。
         sphere = pv.Sphere(radius=2, center=point)
-        sphere_actor = self.plotter.add_mesh(sphere, color="yellow")
+        sphere_actor = self.plotter.add_mesh(sphere, color="#00AEEF")
         self.picked_point_actors.append(sphere_actor)
 
         if len(self.picked_points) == 3:
@@ -2239,10 +2483,10 @@ class MainWindow(QtWidgets.QMainWindow):
             if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
                 QMessageBox.information(
                     self,
-                    "MuJoCo 閲囩偣",
-                    "Main workspace points recorded. Click the lung model in the MuJoCo realtime simulation window to set the EM point."
+                    "MuJoCo 电磁点采集",
+                    "模型点 M1/M2/M3 已记录。\n请在 MuJoCo viewer 的肺部模型上依次点击对应的 E1/E2/E3。"
                 )
-                self.begin_mujoco_em_point_picking()
+                self._start_simulated_em_calibration_sequence()
 
     def update_labels_with_points(self):
         """Show picked reference points in labels."""
@@ -2261,6 +2505,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._record_ref_point(2)
 
     def _record_ref_point(self, row_index):
+        if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
+            if self._confirm_simulated_em_point(row_index):
+                return
         if self.ref_pos is None:
             QMessageBox.warning(self, "未检测到定位探头", "未检测到用于标定的电磁探头（Port 2）。")
             return
@@ -2274,6 +2521,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def begin_mujoco_em_point_picking(self):
         if not getattr(self, "is_simulation_mode", False) or self.mujoco_simulator is None:
             return False
+        self.mujoco_simulator.pick_callback = self.on_mujoco_em_point_picked
+        if self.mujoco_simulator.viewer is not None:
+            self._prompt_next_mujoco_em_point()
+            return True
         if not hasattr(self, "mujoco_pick_window") or self.mujoco_pick_window is None:
             self.mujoco_pick_window = MujocoLungPickWindow(self.mesh, self.on_mujoco_em_point_picked, self)
         self.mujoco_pick_window.show()
@@ -2286,11 +2537,31 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         point = np.asarray(point, dtype=float)
         if self.mujoco_simulator is not None:
-            self.mujoco_simulator.set_clicked_em_position_mm(point)
+            self.mujoco_simulator.set_clicked_em_position_mm(point, notify=False)
         self.ref_pos = point
         self.x_label.setText("Ref X: {:.2f}".format(point[0]))
         self.y_label.setText("Ref Y: {:.2f}".format(point[1]))
         self.z_label.setText("Ref Z: {:.2f}".format(point[2]))
+
+        if self.sim_em_pick_active:
+            if self.sim_em_pick_index >= 3:
+                return
+            self.sim_candidate_em_point = point.copy()
+            point_name = f"E{self.sim_em_pick_index + 1}"
+            print(f"更新 MuJoCo 候选电磁点 {point_name}: {point}")
+            self.sim_status_label.setText(
+                f"MuJoCo 候选 {point_name}: X={point[0]:.2f}, Y={point[1]:.2f}, Z={point[2]:.2f}"
+            )
+            self.plotter.add_text(
+                f"候选 {point_name}: X={point[0]:.2f}, Y={point[1]:.2f}, Z={point[2]:.2f}\n确认请点击右侧“记录标记点 {self.sim_em_pick_index + 1}”",
+                position="upper_left",
+                font_size=12,
+                color="white",
+                name="mujoco_pick_msg",
+            )
+            self.plotter.render()
+            return
+
         self.plotter.add_text(
             "已更新 MuJoCo 虚拟电磁点，可点击记录标记点",
             position="upper_left",
@@ -2313,7 +2584,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 说明已清理。
         # 说明已清理。
         self.plotter.add_text("请在模型中右键点击选择导航终点...", position='upper_left', font_size=12,
-                              color='yellow', name='msg')
+                              color='white', name='msg')
 
         # 说明已清理。
         # 说明已清理。
@@ -2379,6 +2650,8 @@ class MainWindow(QtWidgets.QMainWindow):
             tools_dict = None
             if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
                 self.mujoco_simulator.step()
+                if self.auto_simulation_mapping_ready:
+                    self.R, self.t = self.mujoco_simulator.get_lung_auto_registration()
                 self.update_simulated_camera_frame()
                 if getattr(self.mujoco_simulator, "model_pick_requested", False):
                     self.mujoco_simulator.model_pick_requested = False
@@ -2421,6 +2694,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     [ 0, 0, 1, 0],
                     [ 0, 0, 0, 1]
                 ])
+                if getattr(self, "is_simulation_mode", False):
+                    fix_mat = np.eye(4, dtype=float)
 
                 # --- B. 闀滃瓙 1 (Port 10) ---
                 if PORT_SCOPE_1 in tools_dict:
@@ -2441,17 +2716,21 @@ class MainWindow(QtWidgets.QMainWindow):
                     scope2_pos = mat_scope2[:3, 3]
                     scope2_dir = mat_scope2[:3, :3]
 
-            # 说明已清理。
-            if len(self.R) > 0 and len(self.t) > 0:
+            registration_ready = len(self.R) > 0 and len(self.t) > 0
+            if getattr(self, "is_simulation_mode", False):
+                registration_ready = registration_ready and self.calibration_ready
+
+            if registration_ready:
                 
                 # 说明已清理。
                 if self.scope_pos is not None:
-                    # 鍧愭爣鍙樻崲: Raw -> Virtual
                     raw_virtual = np.dot(self.R, self.scope_pos) + self.t
+                    mapped_scope_dir = np.dot(self.R, self.scope_dir) if self.scope_dir is not None else None
+                    self.mapped_tip_camera_dir = mapped_scope_dir.copy() if mapped_scope_dir is not None else None
                     self.virtual_position_raw = raw_virtual.copy()
                     
                     # 说明已清理。
-                    if hasattr(self, "centerline_points"):
+                    if hasattr(self, "centerline_points") and not self.auto_simulation_mapping_ready:
                         self.virtual_position = self.project_onto_centerline(raw_virtual)
                     else:
                         self.virtual_position = raw_virtual
@@ -2463,10 +2742,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
                     # 说明已清理。
                     # 说明已清理。
-                    self._update_scope_actor(self.scope_dir, self.virtual_position, "scope1")
+                    self._update_scope_actor(mapped_scope_dir, self.virtual_position, "scope1")
 
-                    # 鍑嗗璁板綍鏁版嵁
-                    rec_quat1 = R.from_matrix(self.scope_dir).as_quat()
+                    # 记录映射到肺模型坐标系后的姿态。
+                    rec_quat1 = R.from_matrix(mapped_scope_dir).as_quat() if mapped_scope_dir is not None else [0, 0, 0, 1]
                     rec_scope1 = [self.virtual_position[0], self.virtual_position[1], self.virtual_position[2],
                                   raw_virtual[0], raw_virtual[1], raw_virtual[2]]
 
@@ -2480,17 +2759,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 # 说明已清理。
                 if scope2_pos is not None:
                     raw_virtual_2 = np.dot(self.R, scope2_pos) + self.t
+                    mapped_scope2_dir = np.dot(self.R, scope2_dir) if scope2_dir is not None else None
                     
-                    if hasattr(self, "centerline_points"):
+                    if hasattr(self, "centerline_points") and not self.auto_simulation_mapping_ready:
                         virtual_position_2 = self.project_onto_centerline(raw_virtual_2)
                     else:
                         virtual_position_2 = raw_virtual_2
                     
                     # 说明已清理。
-                    self._update_scope_actor(scope2_dir, virtual_position_2, "scope2")
+                    self._update_scope_actor(mapped_scope2_dir, virtual_position_2, "scope2")
 
-                    # 鍑嗗璁板綍鏁版嵁
-                    rec_quat2 = R.from_matrix(scope2_dir).as_quat()
+                    # 记录映射到肺模型坐标系后的姿态。
+                    rec_quat2 = R.from_matrix(mapped_scope2_dir).as_quat() if mapped_scope2_dir is not None else [0, 0, 0, 1]
                     rec_scope2 = [virtual_position_2[0], virtual_position_2[1], virtual_position_2[2],
                                   raw_virtual_2[0], raw_virtual_2[1], raw_virtual_2[2]]
 
@@ -2534,9 +2814,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_scope_actor(self, rotation_matrix, position, actor_name):
         """Update scope cylinder actor."""
-        # 璁＄畻鍦嗘煴浣撴柟鍚?
-        R_calib = np.dot(self.R, rotation_matrix)
-        dir_z = R_calib[:, 2]
+        if rotation_matrix is None or position is None:
+            return
+        rotation_matrix = np.asarray(rotation_matrix, dtype=float)
+        position = np.asarray(position, dtype=float)
+        if rotation_matrix.shape != (3, 3):
+            return
+        dir_z = rotation_matrix[:, 2]
         if np.linalg.norm(dir_z) < 1e-6: dir_z = np.array([0, 0, 1])
         else: dir_z = dir_z / np.linalg.norm(dir_z)
 
@@ -2547,7 +2831,6 @@ class MainWindow(QtWidgets.QMainWindow):
         else: axis = axis / np.linalg.norm(axis)
         angle = math.degrees(math.acos(np.clip(np.dot(base_z, dir_z), -1.0, 1.0)))
 
-        # 鍙樻崲鐭╅樀
         transform = vtk.vtkTransform()
         transform.PostMultiply()
         transform.RotateWXYZ(angle, axis.tolist())
@@ -2564,7 +2847,6 @@ class MainWindow(QtWidgets.QMainWindow):
             new_actor = self.plotter.add_mesh(cyl, color=color, name=actor_name)
             setattr(self, actor_attr, new_actor)
         
-        # 搴旂敤鍙樻崲
         actor = getattr(self, actor_attr)
         if actor:
             actor.SetUserTransform(transform)
@@ -2816,44 +3098,44 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self.virtual_view, '_closed') and self.virtual_view._closed:
             return
 
-        if not hasattr(self, 'cyl_transform') or not hasattr(self, 'virtual_position'):
+        if not hasattr(self, 'virtual_position') or len(self.virtual_position) != 3:
             return
 
-        # 说明已清理。
-        # 说明已清理。
-        mat = self.cyl_transform.GetMatrix()
-        
-        # 说明已清理。
-        # 说明已清理。
-        dir_view = [mat.GetElement(i, 1) for i in range(3)]
-        
-        # 说明已清理。
-        norm = math.sqrt(dir_view[0] ** 2 + dir_view[1] ** 2 + dir_view[2] ** 2)
-        if norm > 1e-6:
-            dir_view = [v / norm for v in dir_view]
+        if (
+            getattr(self, "is_simulation_mode", False)
+            and getattr(self, "mapped_tip_camera_dir", None) is not None
+        ):
+            camera_frame = np.asarray(self.mapped_tip_camera_dir, dtype=float)
+            dir_view = camera_frame[:, 2]
+            view_up = camera_frame[:, 1]
         else:
-            dir_view = [0, 1, 0]
+            if not hasattr(self, 'cyl_transform'):
+                return
+            mat = self.cyl_transform.GetMatrix()
+            dir_view = np.array([mat.GetElement(i, 1) for i in range(3)], dtype=float)
+            view_up = np.array([0.0, 0.0, 1.0], dtype=float)
 
-        # 说明已清理。
-        # 说明已清理。
+        dir_norm = np.linalg.norm(dir_view)
+        dir_view = dir_view / dir_norm if dir_norm > 1e-6 else np.array([0.0, 1.0, 0.0])
+        up_norm = np.linalg.norm(view_up)
+        view_up = view_up / up_norm if up_norm > 1e-6 else np.array([0.0, 0.0, 1.0])
 
-        # ====== 2. 璁剧疆鐩告満 ======
         cam = self.virtual_view.camera
         cam.SetPosition(self.virtual_position.tolist())
-
-        # 说明已清理。
-        cam.SetViewUp([0, 0, 1])
-
-        # 说明已清理。
-        focal = [self.virtual_position[i] + dir_view[i] for i in range(3)]
-        cam.SetFocalPoint(focal)
+        cam.SetViewUp(view_up.tolist())
+        focal = np.asarray(self.virtual_position, dtype=float) + dir_view * 10.0
+        cam.SetFocalPoint(focal.tolist())
+        if getattr(self, "is_simulation_mode", False):
+            cam.SetViewAngle(float(self.mujoco_simulator.model.cam_fovy[self.mujoco_simulator.tip_camera_id]))
+            cam.SetWindowCenter(0.0, 0.0)
+            cam.SetClippingRange(0.1, 40000.0)
 
         # 渲染更新。
         self.virtual_view.render()
 
         # 说明已清理。
         # 说明已清理。
-        z_cam = np.array(dir_view, dtype=float) 
+        z_cam = np.array(dir_view, dtype=float)
         z_norm = np.linalg.norm(z_cam)
         if z_norm > 1e-6:
             z_cam /= z_norm
@@ -2979,32 +3261,117 @@ class MainWindow(QtWidgets.QMainWindow):
             points.append(point)
         return np.array(points)
     def Kabsch_computer(self):
-        if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
-            points_A = self.extract_points_from_labels(self.coord_labels2)
-            points_B = self.extract_points_from_labels(self.coord_labels)
-            if np.count_nonzero(points_A) == 0 or np.count_nonzero(points_B) == 0:
-                self.begin_mujoco_em_point_picking()
-                return
         points_A = self.extract_points_from_labels(self.coord_labels2)
         points_B = self.extract_points_from_labels(self.coord_labels)
+        if points_A.shape != (3, 3) or points_B.shape != (3, 3):
+            QMessageBox.warning(self, "配准点不足", "需要 3 个模型点和 3 个电磁点才能完成配准。")
+            return
+        if not (np.isfinite(points_A).all() and np.isfinite(points_B).all()):
+            QMessageBox.warning(self, "配准点无效", "标定点坐标包含无效值，请重新采集。")
+            return
+        if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
+            if len(self.sim_em_points) < 3:
+                QMessageBox.information(self, "MuJoCo 电磁点未采满", "请先在 MuJoCo viewer 中采集 E1/E2/E3。")
+                self.sim_em_pick_active = True
+                self.sim_em_pick_index = min(len(self.sim_em_points), 2)
+                self.begin_mujoco_em_point_picking()
+                return
         self.R, self.t = compute_rigid_transform(points_A, points_B)
-        print(points_A, points_B)
-        print(self.R, self.t)
+        transformed = (self.R @ points_A.T).T + self.t
+        residual_vecs = points_B - transformed
+        residuals = np.linalg.norm(residual_vecs, axis=1)
+        rmse = float(np.sqrt(np.mean(np.square(residuals))))
+        max_error = float(np.max(residuals))
+        self.calibration_residuals = residuals.tolist()
+        self.calibration_rmse = rmse
+        self.calibration_max_error = max_error
+        is_sim_calibration = getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None
+        if is_sim_calibration:
+            self.calibration_ready = rmse < self.calibration_threshold_mm
+            self.ready_control = self.ready_control or self.calibration_ready
+        else:
+            self.calibration_ready = False
+            self.ready_control = True
+
+        print("Kabsch 输入电磁点 E:", points_A)
+        print("Kabsch 输入模型点 M:", points_B)
+        print("R:", self.R)
+        print("t:", self.t)
+        print(f"标定残差: {residuals}, RMSE={rmse:.3f} mm, Max={max_error:.3f} mm")
+
+        message = (
+            f"残差: E1={residuals[0]:.3f} mm, E2={residuals[1]:.3f} mm, E3={residuals[2]:.3f} mm\n"
+            f"RMSE: {rmse:.3f} mm\n"
+            f"最大误差: {max_error:.3f} mm\n"
+            f"阈值: {self.calibration_threshold_mm:.3f} mm"
+        )
+        if is_sim_calibration:
+            if self.calibration_ready:
+                self.sim_status_label.setText(f"MuJoCo 标定完成: RMSE {rmse:.2f} mm")
+                QMessageBox.information(self, "标定完成", message)
+            else:
+                self.sim_status_label.setText(f"MuJoCo 标定误差过大: RMSE {rmse:.2f} mm")
+                QMessageBox.warning(self, "标定误差过大", message + "\n\n请重新采集 M1/M2/M3 与 E1/E2/E3。")
+        else:
+            QMessageBox.information(self, "配准完成", message)
+
+    def _resolve_centerline_iges_path(self):
+        candidates = [
+            os.path.join(BASE_DIR, "老模型中心线.igs"),
+            os.path.join(PROJECT_ROOT, "老模型中心线.igs"),
+            os.path.join(os.getcwd(), "老模型中心线.igs"),
+        ]
+        for path in candidates:
+            if os.path.isfile(path):
+                return path
+        for directory in (BASE_DIR, PROJECT_ROOT):
+            if not os.path.isdir(directory):
+                continue
+            for name in os.listdir(directory):
+                if name.lower().endswith((".igs", ".iges")):
+                    return os.path.join(directory, name)
+        raise FileNotFoundError("未找到中心线 IGES 文件，请确认 window/老模型中心线.igs 存在。")
+
+    def _resolve_segmentation_weights_path(self):
+        weights_name = "1205weights_49.pth"
+        candidates = [
+            os.path.join(BASE_DIR, weights_name),
+            os.path.join(PROJECT_ROOT, weights_name),
+            os.path.join(os.getcwd(), weights_name),
+        ]
+        for path in candidates:
+            if os.path.isfile(path):
+                return os.path.abspath(path)
+        raise FileNotFoundError(
+            f"未找到分割模型权重 {weights_name}，请确认文件位于 window 目录或项目根目录。"
+        )
+
     def route_plan(self):
-        # 读取 IGES 中的中心线。
-        self.all_points = self.read_iges('老模型中心线.igs')
+        try:
+            centerline_path = self._resolve_centerline_iges_path()
+            self.all_points = self.read_iges(centerline_path)
+            valid_lines = [np.asarray(points, dtype=float) for points in self.all_points if len(points) > 0]
+            if not valid_lines:
+                raise ValueError(f"中心线文件未包含有效曲线: {centerline_path}")
+            self.all_points = valid_lines
+            self.centerline_points = np.vstack(self.all_points)
 
-        # 合并全部中心线点，用于构建 KDTree。
-        self.centerline_points = np.vstack(self.all_points)
+            print(f"正在构建 KDTree，共 {len(self.centerline_points)} 个点...")
+            self.kdtree = cKDTree(self.centerline_points)
 
-        print(f"正在构建 KDTree，共 {len(self.centerline_points)} 个点...")
-        self.kdtree = cKDTree(self.centerline_points)
+            nearest_point_goal, d, i = self.find_nearest_point(self.centerline_points, self.endpoint)
+            path, self.smoothpath, graph = pathplan(
+                self.all_points,
+                [9.1551647, -94.828995, 43.316994],
+                nearest_point_goal,
+            )
+            if self.smoothpath is None or len(self.smoothpath) < 2:
+                raise ValueError("路径规划未生成有效路径，请重新选择导航终点。")
+        except Exception as e:
+            QMessageBox.critical(self, "路径规划失败", str(e))
+            print(f"路径规划失败: {e}")
+            return
 
-        # 在中心线上查找距离终点最近的点。
-        nearest_point_goal, d, i = self.find_nearest_point(self.centerline_points, self.endpoint)
-
-        path = []
-        path, self.smoothpath, graph = pathplan(self.all_points,[9.1551647 ,-94.828995 ,43.316994 ],nearest_point_goal)
         # 使用规划后的路径点替换全局中心线点。
         self.centerline_points = np.array(self.smoothpath)
 
@@ -3024,6 +3391,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.virtual_view.remove_actor(self.path_actor_virtual)
         self.path_actor_virtual = self.virtual_view.add_mesh(line, color="red", line_width=4)
         self.virtual_view.render()
+        if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
+            try:
+                self.mujoco_simulator.set_navigation_path_model_mm(self.smoothpath)
+                self.sim_status_label.setText("MuJoCo 自动同步已启用，规划路径已同步")
+            except Exception as e:
+                QMessageBox.warning(self, "路径同步失败", str(e))
         self.enable_virtual_seg = True
         print("虚拟视角分割准备完成。")
     def read_iges(self,file_path):
@@ -3260,6 +3633,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # 鏈€鍚庢覆鏌撲竴娆?
         self.virtual_view.render()
     def sync_virtual_camera_with_intrinsics(self):
+        if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
+            cam = self.virtual_view.camera
+            cam.SetViewAngle(float(self.mujoco_simulator.model.cam_fovy[self.mujoco_simulator.tip_camera_id]))
+            cam.SetWindowCenter(0.0, 0.0)
+            cam.SetClippingRange(0.1, 40000.0)
+            self.virtual_view.render()
+            return
         K = self.intrinsic_camera_matrix
         fx, fy = K[0, 0], K[1, 1]
         cx, cy = K[0, 2], K[1, 2]
@@ -3330,12 +3710,20 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.seg_running:
             return
 
+        try:
+            weights_path = self._resolve_segmentation_weights_path()
+        except Exception as e:
+            self._reset_segmentation_ui()
+            QMessageBox.critical(self, "分割模型加载失败", str(e))
+            print(f"分割启动失败: {e}")
+            return
+
         self.seg_queue = Queue(maxsize=1)
 
         self.seg_thread = QtCore.QThread(self)
 
         self.seg_worker = SegmentationWorker(
-            weights_path="1205weights_49.pth",
+            weights_path=weights_path,
             frame_queue=self.seg_queue,  # <--- 浼犲叆闃熷垪
             img_size=400
         )
@@ -3344,11 +3732,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self.seg_thread.started.connect(self.seg_worker.process_loop)
         self.seg_worker.finished.connect(self.seg_thread.quit)
         self.seg_worker.finished.connect(self.seg_worker.deleteLater)
+        self.seg_worker.errorOccurred.connect(self._on_segmentation_error)
+        self.seg_thread.finished.connect(self._on_segmentation_thread_finished)
         self.seg_thread.finished.connect(self.seg_thread.deleteLater)
         self.seg_worker.resultReady.connect(self.on_segmentation_result)
 
         self.seg_running = True
         self.seg_thread.start()
+
+    def _reset_segmentation_ui(self):
+        self.seg_running = False
+        self.seg_button.blockSignals(True)
+        self.seg_button.setChecked(False)
+        self.seg_button.setText("开始分割")
+        self.seg_button.blockSignals(False)
+
+    @QtCore.pyqtSlot(str)
+    def _on_segmentation_error(self, message):
+        self._reset_segmentation_ui()
+        QMessageBox.critical(self, "分割模型加载失败", message)
+
+    @QtCore.pyqtSlot()
+    def _on_segmentation_thread_finished(self):
+        self._reset_segmentation_ui()
+        self.seg_worker = None
+        self.seg_thread = None
 
     def stop_segmentation(self):
         if not self.seg_running:

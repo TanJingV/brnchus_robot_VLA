@@ -11,7 +11,8 @@
 
   <visual>
     <quality shadowsize="1024" />
-    <map znear="0.05" />
+    <!-- model extent is 0.8 m; 0.000125 gives a 0.1 mm near clipping plane. -->
+    <map znear="0.000125" />
     <headlight diffuse="0.6 0.6 0.6" />
     <rgba haze="0.15 0.25 0.35 1" />
   </visual>
@@ -34,7 +35,7 @@
   </asset>
 
   <worldbody>
-    <geom name="floor" pos="0 0 0" size="0 0 .25" type="plane" material="plane" condim="3" />
+    <geom name="floor" pos="0 0 0" size="0 0 .25" type="plane" material="plane" condim="3" group="5" />
     <light directional="true" ambient=".3 .3 .3" pos="30 30 30" dir="0 -.5 -1" diffuse=".5 .5 .5" specular=".5 .5 .5" />   
 
     <!-- <body pos="0.3138 0.015 2.054" name="box1">
@@ -119,7 +120,8 @@
       <joint type="free" name="slider_joint" /> 
       <geom size=".001" mass="0.001" rgba="0 0 0 0" contype="0" conaffinity="0" />
       
-      <camera name="tip_camera" pos="-0.044 0 0" euler="1.57 -1.57 0" fovy="20"/>
+      <!-- Place the camera 4 mm in front of the distal tip; local -Z looks along +X. -->
+      <camera name="tip_camera" pos="0.004 0 0" euler="1.57 -1.57 0" fovy="20"/>
 
       <body name="end_6" pos="0 0 0">
         <geom name="end_6_mass_geom" type="sphere" size="1e-5" mass="1e-6" rgba="0 0 0 0" contype="0" conaffinity="0" />
