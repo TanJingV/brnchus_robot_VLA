@@ -1,6 +1,22 @@
 import sys
 import os
 import time
+
+# Keep the original application behaviour independent of how it is launched
+# (double-click, IDE, or from the project root).  All bundled resources and
+# helper modules live next to this file.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+for _path in (BASE_DIR, PROJECT_ROOT):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+
+def window_resource(name: str) -> str:
+    return os.path.join(BASE_DIR, name)
+
+
 from scipy.spatial import cKDTree
 from queue import Queue, Empty
 from PyQt5 import QtWidgets, QtCore
@@ -10,7 +26,7 @@ from pyvistaqt import QtInteractor
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5 import QtGui
 import torch
-from unet import Unet
+from Visual_information.legacy_segmentation.unet import Unet
 from scipy.spatial.transform import Rotation as R
 import pyvista as pv
 import serial.tools.list_ports
@@ -31,6 +47,7 @@ from torchvision import transforms
 from PIL import Image
 import pyqtgraph as pg
 from collections import deque
+from dual_camera_recording import DualCameraRecordingMixin
 def EventHandler(et, ival, sval):
     if et == TUA.EventType.Error or et == TUA.EventType.Warning:
         print("MC Error: (%x) %s" % (ival, sval))
@@ -229,7 +246,7 @@ class SegmentationWorker(QtCore.QObject):
         if self.model is None:
             try:
                 print(f"正在加载模型: {self.weights_path} ...")
-                # 确保你导入了 Unet 类 (from unet import Unet)
+                # Unet is provided by Visual_information.legacy_segmentation.
                 self.model = Unet(3, 1)
                 # 加载权重
                 state = torch.load(self.weights_path, map_location=self.device)
@@ -354,7 +371,7 @@ class SquareLabelContainer(QtWidgets.QWidget):
         self.label.setGeometry(x, y, side, side)
 
         super().resizeEvent(event)
-class MainWindow(QtWidgets.QMainWindow):
+class MainWindow(DualCameraRecordingMixin, QtWidgets.QMainWindow):
     def __init__(self,  data_queue: Queue):
         super().__init__()
         self._is_closing = False
@@ -397,6 +414,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.seg_thread = None
         self.seg_worker = None
         self.seg_running = False
+        self.latest_real_frame_bgr = None
         self.setup_ui()
         self.virt_opening_actor = None   # 第一次调用时创建
         self.virt_opening_poly = None    # 对应的 PolyData，用来更新点坐标
@@ -409,9 +427,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.is_recording_trajectory = False  # 记录开关标志
         self.trajectory_data = []  # 存储所有数据 [(t, vx, vy, vz, ax0, ..., ax6), ...]
         self.recording_start_time = 0.0  # 记录开始的时间戳
-        self.save_dir = os.path.join(os.getcwd(), "实际轨迹")  # 保存路径
+        self.save_dir = os.path.join(PROJECT_ROOT, "实际轨迹")  # 保存路径
         self.real_video_writer = None  # 真实 Mask 视频写入器
         self.virt_video_writer = None  # 虚拟 Mask + Depth 视频写入器
+        self.initialize_dual_camera_recording()
         # 缓存当前 7 个轴的位置，默认初始化为 0.0
         self.current_axis_values = [0.0] * 7
 
@@ -896,15 +915,16 @@ class MainWindow(QtWidgets.QMainWindow):
             self.current_axis_values = [0.0] * 7
 
             # --- 2. 【新增】视频记录初始化 ---
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            recording_dir = self.prepare_recording_session(timestamp_str)
             try:
-                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
                 real_video_name = f"RealMask_{timestamp_str}.avi"
                 virt_video_name = f"VirtualMask_{timestamp_str}.avi"
-                real_path = os.path.join(self.save_dir, real_video_name)
-                virt_path = os.path.join(self.save_dir, virt_video_name)
+                real_path = os.path.join(recording_dir, real_video_name)
+                virt_path = os.path.join(recording_dir, virt_video_name)
 
-                # 定义编码器 (XVID 兼容性较好)
-                fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                # Preserve the native mask/depth pixels with lossless FFV1.
+                fourcc = cv2.VideoWriter_fourcc(*'FFV1')
                 real_fps = 20.0  # 实际分割跑得快
                 virt_fps = 4.0  # 虚拟视角被分频了
 
@@ -917,6 +937,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 print(f"初始化视频录制失败: {e}")
                 self.real_video_writer = None
                 self.virt_video_writer = None
+            try:
+                self.start_dual_camera_recording(timestamp_str)
+            except Exception as e:
+                print(f"初始化双路摄像头记录失败: {e}")
+                self.dual_camera_recorder = None
         else:
             # --- 停止记录 ---
             self.is_recording_trajectory = False
@@ -933,7 +958,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 print(f"实际录制帧数: {total_frames} 帧")
                 print(f"建议将 real_fps 修改为: {actual_fps:.2f}")
                 print(f"========================================")
-            self.save_trajectory_to_file()
+            self.stop_dual_camera_recording()
 
             if self.real_video_writer is not None:
                 self.real_video_writer.release()
@@ -941,15 +966,20 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.virt_video_writer is not None:
                 self.virt_video_writer.release()
                 self.virt_video_writer = None
+            self.save_trajectory_to_file()
 
     def save_trajectory_to_file(self):
         """将记录的数据保存为 CSV 文件 (双镜子版本)"""
         if not self.trajectory_data:
             return
         try:
-            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp_str = (
+                getattr(self, "recording_timestamp_str", None)
+                or datetime.now().strftime("%Y%m%d_%H%M%S")
+            )
             filename = f"{timestamp_str}_DualScope.csv"
-            file_path = os.path.join(self.save_dir, filename)
+            output_dir = getattr(self, "recording_session_dir", None) or self.save_dir
+            file_path = os.path.join(output_dir, filename)
 
             import csv
             with open(file_path, mode='w', newline='', encoding='utf-8') as f:
@@ -975,7 +1005,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 writer.writerow(headers)
                 writer.writerows(self.trajectory_data)
 
-            QMessageBox.information(self, "记录完成", f"双镜子数据已保存:\n{filename}")
+            QMessageBox.information(
+                self,
+                "记录完成",
+                f"本次全部记录已保存至:\n{output_dir}",
+            )
         except Exception as e:
             print(f"保存失败: {e}")
 
@@ -1144,9 +1178,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
 
         if self.cap.isOpened():
-            # 设置分辨率（可选，根据需要调整，越高越卡）
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 400)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 400)
+            # Keep the device's native frame size; only the Qt preview scales it.
             self.video_timer.start(30)  # 30ms 刷新一次，约 33 FPS
             print(f"相机 {index} 已通过 OpenCV 打开")
         else:
@@ -1154,7 +1186,7 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"相机 {index} 打开失败")
 
     def add_example_mesh(self):
-        self.mesh = pv.read("支气管.stl")
+        self.mesh = pv.read(window_resource("支气管.stl"))
         self.plotter.add_mesh(self.mesh, color="lightgray", opacity=0.5)
         self.plotter.add_axes()  # 添加坐标轴显示
         self.plotter.reset_camera()
@@ -1165,7 +1197,16 @@ class MainWindow(QtWidgets.QMainWindow):
             selected_port = self.comComboBox.currentData()
             if selected_port:
                 try:
-                    self.tracker_wrapper = NDITrackerWrapper()
+                    # NDITrackerWrapper's legacy constructor validates its
+                    # relative ROM path immediately.  Construct it beside the
+                    # bundled ROM, then retain an absolute path afterwards.
+                    previous_cwd = os.getcwd()
+                    try:
+                        os.chdir(BASE_DIR)
+                        self.tracker_wrapper = NDITrackerWrapper()
+                    finally:
+                        os.chdir(previous_cwd)
+                    self.tracker_wrapper.ROM_FILE = window_resource("8700339.rom")
                     self.tracker_wrapper.COM_PORT = selected_port
                     self.data_queue = self.tracker_wrapper.visualization_queue
 
@@ -1466,6 +1507,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # 这一步非常重要：它会读取最新的 Actor 姿态（已被 fix_mat 修正），
             # 并将虚拟相机对齐过去，从而解决“视角向后”的问题。
             self._update_virtual_camera_logic()
+            self.record_dual_camera_frame_pair()
 
         except Exception as e:
             # 避免循环报错刷屏
@@ -1939,7 +1981,7 @@ class MainWindow(QtWidgets.QMainWindow):
         print(self.R, self.t)
     def route_plan(self):
         # 1) 读取 IGES 中的所有中心线
-        self.all_points = self.read_iges('老模型中心线.igs')
+        self.all_points = self.read_iges(window_resource('老模型中心线.igs'))
 
         # 2) 把所有中心线点拼成一个大数组，后面找最近点就用它
         self.centerline_points = np.vstack(self.all_points)
@@ -2234,6 +2276,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         ret, frame = self.cap.read()
         if not ret: return
+        self.latest_real_frame_bgr = frame.copy()
 
         if not self._is_closing:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -2282,7 +2325,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.seg_thread = QtCore.QThread(self)
 
         self.seg_worker = SegmentationWorker(
-            weights_path="1205weights_49.pth",
+            weights_path=os.path.join(
+                PROJECT_ROOT,
+                "Visual_information",
+                "models",
+                "legacy_unet",
+                "1205weights_49.pth",
+            ),
             frame_queue=self.seg_queue,  # <--- 传入队列
             img_size=400
         )
@@ -2365,6 +2414,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # 1. 停止定时器 (防止 UI 刷新)
         if hasattr(self, 'timer'): self.timer.stop()
         if hasattr(self, 'video_timer'): self.video_timer.stop()
+        self.is_recording_trajectory = False
+        self.stop_dual_camera_recording()
+        for writer_name in ("real_video_writer", "virt_video_writer"):
+            writer = getattr(self, writer_name, None)
+            if writer is not None:
+                writer.release()
+                setattr(self, writer_name, None)
 
         # 2. 停止 NDI Tracker
         if hasattr(self, "tracker_wrapper") and self.tracker_wrapper:

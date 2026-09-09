@@ -1,0 +1,25 @@
+{
+  "seven_marker_fusion": {
+    "depth_roi_radius_px": 5,
+    "minimum_depth_samples": 4,
+    "depth_cluster_gate_m": 0.010,
+    "depth_noise_floor_m": 0.0007,
+    "rgb_pixel_sigma_px": 0.45,
+    "ir_pixel_sigma_px": 0.30,
+    "stereo_disparity_sigma_px": 0.30,
+    "modality_mahalanobis_gate": 16.0,
+    "modality_distance_gate_m": 0.012,
+    "measurement_sigma_floor_m": 0.00020,
+    "temporal_prediction_sigma_m": 0.0018,
+    "temporal_weight": 0.65,
+    "length_upper_sigma_m": 0.00045,
+    "maximum_chord_scale": 1.05,
+    "curvature_smooth_sigma_m": 0.0025,
+    "curvature_weight": 0.22,
+    "huber_scale": 1.5,
+    "optimizer_max_evaluations": 18,
+    "maximum_prediction_frames": 6,
+    "prediction_process_sigma_m": 0.0015,
+    "velocity_alpha": 0.35
+  }
+}

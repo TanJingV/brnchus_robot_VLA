@@ -1,0 +1,46 @@
+{
+  "model_name": "two_segment_tendon_driven_continuum",
+  "geometry": {
+    "number_of_sections": 2,
+    "section_length_m": 0.021,
+    "outer_diameter_m": 0.0035,
+    "working_channel_diameter_m": 0.0026,
+    "wall_thickness_m": 0.00045,
+    "total_active_length_m": 0.042,
+    "rigid_sections": {
+      "inter_section_length_m": 0.006,
+      "distal_tip_length_m": 0.006,
+      "total_rigid_length_m": 0.012
+    },
+    "total_continuum_length_m": 0.054
+  },
+  "discretization": {
+    "joints_per_section": 12,
+    "joint_range_rad": 0.35
+  },
+  "effective_material": {
+    "description": "Initial homogenized value for the laser-cut NiTi skeleton plus TPU; calibrate from measured force-shape data.",
+    "density_kg_m3": 6450.0,
+    "youngs_modulus_pa": 20000000.0,
+    "poisson_ratio": 0.33,
+    "joint_damping_nms_per_rad": 0.006,
+    "joint_armature_kg_m2": 1e-10
+  },
+  "tendons": {
+    "wire_diameter_m": 0.00015,
+    "radius_from_center_m": 0.00154,
+    "routing_mode": "coupled",
+    "position_kp_n_per_m": 30000.0,
+    "position_kd_n_s_per_m": 0.5,
+    "pretension_n": 0.3,
+    "maximum_tension_n": 15.0,
+    "maximum_commanded_bend_per_section_deg": 160.0,
+    "proximal_wire_angles_deg": [0.0, 120.0, 240.0],
+    "distal_wire_angles_deg": [60.0, 180.0, 300.0]
+  },
+  "simulation": {
+    "timestep_s": 0.0002,
+    "gravity_m_per_s2": [0.0, 0.0, 0.0],
+    "integrator": "implicitfast"
+  }
+}

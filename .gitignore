@@ -1,0 +1,39 @@
+# D435 experiments are reproducible outputs, not source files.
+d435_sessions/
+**/d435_sessions/
+*.bag
+**/overlay.mp4
+**/keypoints.npz
+**/identified_profile.json
+**/identification_report.md
+Visual_information/outputs/
+
+# Python runtime artifacts.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+Visual_information/.ultralytics/
+Visual_information/.hf/
+.tmp/
+.numba_cache/
+Visual_information/models/cotracker3/*.part
+
+# Learned TDCR keypoint datasets and training runs contain captured subject
+# imagery and large generated artefacts.  Keep the schema/docs, not samples.
+Visual_information/seven_marker_yolo_pose/images/
+Visual_information/seven_marker_yolo_pose/labels/
+Visual_information/seven_marker_yolo_pose/.tdcr_pose_runtime.yaml
+Visual_information/models/tdcr_yolo_pose/runs/
+
+# Local recordings, credentials and downloaded model checkpoints.
+实际轨迹/
+**/实际轨迹/
+MUJOCO_LOG.TXT
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+Visual_information/models/cotracker3/*.pth
+Visual_information/models/sam2.1-hiera-tiny/*.safetensors
+Visual_information/models/tdcr_yolo_pose/*.pt

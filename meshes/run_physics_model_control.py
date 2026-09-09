@@ -5,26 +5,38 @@ import mujoco.viewer
 import cv2
 import os
 import math
+import sys
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from two_segment_tdcr_opencr.contact_stabilization import (
+    ActiveTipContactRegularizer,
+)
 
 # ================= 配置区域 =================
-XML_PATH = "meshes\cable_robot_bronch_final_seg2.xml"  # 请确保文件名正确
+XML_PATH = r"meshes\cable_robot_bronch_final_seg2.xml"  # 请确保文件名正确
 CAMERA_NAME = "tip_camera"
+COLLISION_FLEX_GROUP = 4  # Dedicated non-convex bronchial collision display group.
 
 # --- 物理引擎稳定性设置 ---
 # 强制使用 implicitfast 以适应高刚度绳索
 NEW_INTEGRATOR = mujoco.mjtIntegrator.mjINT_IMPLICITFAST 
-NEW_TIMESTEP = 0.001
-STEPS_PER_RENDER = 100
+NEW_TIMESTEP = 0.0002
+# Small batches prevent a contact-heavy physics update from blocking the UI.
+STEPS_PER_RENDER = 20
+MAX_INSERTION_RATE = 1.00  # m/s command ramp, based on wall time.
 
 # --- 物理参数 (用于UI显示理论参考) ---
 # 镍钛合金 Seg (r=1.75mm) 计算出的 EI ≈ 0.55 Nm^2
-THEO_EI_NITINOL = 0.55 
-SEG_LENGTH = 0.027     # 27mm
+THEO_EI_NITINOL = 0.00010246
+SEG_LENGTH = 0.021     # 21 mm per active section
 
 # --- 控制参数 ---
-MAX_TORQUE = 1.0       # 最大力矩 1.0 Nm
+MAX_TORQUE = 0.02      # Approximately 15 N * 1.54 mm tendon moment arm
 COMPASS_RADIUS = 130   # 罗盘半径
-TORQUE_SMOOTH = 0.15   # 力矩平滑系数 (防止突变)
+TORQUE_SMOOTH = 0.65   # Fast one-pole command response without a torque step.
 # ===========================================
 
 def quat_diff_angle(q1, q2):
@@ -97,6 +109,9 @@ class BronchoBotController:
         self.c2_center = (600, 480) 
         self.dragging = None 
         self.slider_val = 0.0
+        self.slider_command = 0.0
+        self.last_control_wall_time = time.perf_counter()
+        self.contact_regularizer = ActiveTipContactRegularizer(model, data)
 
     def mouse_callback(self, event, x, y, flags, param):
         """处理鼠标拖拽罗盘"""
@@ -142,7 +157,18 @@ class BronchoBotController:
     def update_control(self):
         """计算力矩并进行平滑处理"""
         # 1. 进给电机控制
-        self.data.ctrl[self.slider_act] = self.slider_val * 0.577
+        now = time.perf_counter()
+        elapsed = float(np.clip(now - self.last_control_wall_time, 0.0, 0.1))
+        self.last_control_wall_time = now
+        target = self.slider_val * 0.577
+        max_step = MAX_INSERTION_RATE * elapsed
+        delta = np.clip(
+            target - self.slider_command,
+            -max_step,
+            max_step,
+        )
+        self.slider_command += float(delta)
+        self.data.ctrl[self.slider_act] = self.slider_command
         
         # 2. 弯曲力矩计算
         for i, seg in enumerate(self.segments):
@@ -195,6 +221,10 @@ class BronchoBotController:
                               self.data.site_xpos[sid], 
                               self.model.site_bodyid[sid], 
                               self.data.qfrc_applied)
+
+    def prepare_physics_step(self):
+        """Apply contact-only solver regularization; never lock model state."""
+        self.contact_regularizer.before_step()
 
     def draw_ui(self, cam_img=None):
         # 画布尺寸 750x800
@@ -266,7 +296,6 @@ class BronchoBotController:
         cv2.circle(img, (sx, bar_y), 15, (0, 255, 0), -1)
         cv2.putText(img, f"Insertion Depth: {self.slider_val*100:.0f}%", (320, bar_y + 35), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
-
         cv2.imshow(self.win_name, img)
 
 def main():
@@ -292,14 +321,42 @@ def main():
     print(f"Loading Model: {XML_PATH}")
     print(f"Seg2 Limit: 0.7 * MaxTorque")
     print("Controls: Drag Compasses for Bending, Slider for Insertion.")
+    print("Press 4 in the MuJoCo window to show/hide the exact non-convex collision mesh.")
+
+    # MuJoCo keeps geom and flex visibility in separate group arrays.  Bind key 4
+    # explicitly so this works even in viewer versions whose numeric shortcuts
+    # only toggle ordinary geom groups.
+    viewer_ref = {"handle": None}
+
+    def key_callback(keycode):
+        if keycode != ord("4"):
+            return
+        handle = viewer_ref["handle"]
+        if handle is None:
+            return
+        with handle.lock():
+            enabled = 1 - int(handle.opt.flexgroup[COLLISION_FLEX_GROUP])
+            handle.opt.flexgroup[COLLISION_FLEX_GROUP] = enabled
+            # FLEXFACE is the actual collision triangulation; FLEXSKIN is only a
+            # smoothed rendering and would hide the exact non-convex surface.
+            handle.opt.flags[mujoco.mjtVisFlag.mjVIS_FLEXFACE] = enabled
+            handle.opt.flags[mujoco.mjtVisFlag.mjVIS_FLEXSKIN] = 0
+        print(f"[Viewer] Non-convex collision mesh: {'ON' if enabled else 'OFF'} (group 4)")
     
     # 启动被动查看器
-    with mujoco.viewer.launch_passive(model, data) as viewer:
+    with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
+        viewer_ref["handle"] = viewer
+        with viewer.lock():
+            # Keep the dense collision surface hidden until the user presses 4.
+            viewer.opt.flexgroup[COLLISION_FLEX_GROUP] = 0
+            viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_FLEXFACE] = 0
+            viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_FLEXSKIN] = 0
         while viewer.is_running():
             ctrl.update_control()
             
             for _ in range(STEPS_PER_RENDER):
                 data.qfrc_applied[:] = 0 
+                ctrl.prepare_physics_step()
                 ctrl.apply_physics()     
                 mujoco.mj_step(model, data)
             
@@ -316,6 +373,8 @@ def main():
             
             if cv2.waitKey(1) == 27: 
                 break
+
+        viewer_ref["handle"] = None
                 
     cv2.destroyAllWindows()
 

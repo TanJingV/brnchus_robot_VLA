@@ -1,0 +1,453 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="two_segment_tendon_driven_continuum">
+  <compiler angle="radian" autolimits="true" boundmass="1e-12" />
+  <option timestep="0.0002" integrator="implicitfast" gravity="0 0 0" cone="pyramidal" impratio="100" iterations="80" tolerance="1e-7" />
+  <visual>
+    <headlight diffuse="0.8 0.8 0.8" ambient="0.25 0.25 0.25" />
+    <global azimuth="130" elevation="-20" />
+  </visual>
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.9 0.95 1" rgb2="0.25 0.35 0.5" width="256" height="256" />
+  </asset>
+  <worldbody>
+    <light pos="0 0.04 0.08" dir="0 -0.4 -1" diffuse="0.9 0.9 0.9" />
+    <body name="tdcr_base" pos="0 0 0">
+      <site name="base_frame" pos="0 0 0" size="0.00012" rgba="0 0.8 1 1" />
+      <site name="measurement_kp_0" pos="0 0 0" size="0.00022" rgba="1 0.85 0.05 0.9" group="5" />
+      <geom name="base_disk" type="cylinder" pos="-0.0002 0 0" euler="0 1.57079632679 0" size="0.00196 0.0002" mass="0" rgba="0.15 0.18 0.22 1" contype="0" conaffinity="0" />
+      <site name="wire_1_base" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+      <site name="wire_2_base" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+      <site name="wire_3_base" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+      <site name="wire_4_base" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+      <site name="wire_5_base" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+      <site name="wire_6_base" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+      <geom name="section_1_element_0" type="cylinder" fromto="0 0 0 0.000875 0 0" size="0.00175" mass="2.43349239569e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+      <body name="section_1_joint_body_0" pos="0.000875 0 0">
+        <joint name="section_1_joint_0_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+        <joint name="section_1_joint_0_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+        <geom name="section_1_element_1" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+        <site name="wire_1_section_1_joint_0" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+        <site name="wire_2_section_1_joint_0" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+        <site name="wire_3_section_1_joint_0" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+        <site name="wire_4_section_1_joint_0" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+        <site name="wire_5_section_1_joint_0" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+        <site name="wire_6_section_1_joint_0" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+        <body name="section_1_joint_body_1" pos="0.00175 0 0">
+          <joint name="section_1_joint_1_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+          <joint name="section_1_joint_1_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+          <geom name="section_1_element_2" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+          <site name="wire_1_section_1_joint_1" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+          <site name="wire_2_section_1_joint_1" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+          <site name="wire_3_section_1_joint_1" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+          <site name="wire_4_section_1_joint_1" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+          <site name="wire_5_section_1_joint_1" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+          <site name="wire_6_section_1_joint_1" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+          <body name="section_1_joint_body_2" pos="0.00175 0 0">
+            <joint name="section_1_joint_2_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+            <joint name="section_1_joint_2_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+            <geom name="section_1_element_3" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+            <site name="wire_1_section_1_joint_2" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+            <site name="wire_2_section_1_joint_2" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+            <site name="wire_3_section_1_joint_2" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+            <site name="wire_4_section_1_joint_2" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+            <site name="wire_5_section_1_joint_2" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+            <site name="wire_6_section_1_joint_2" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+            <body name="section_1_joint_body_3" pos="0.00175 0 0">
+              <joint name="section_1_joint_3_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+              <joint name="section_1_joint_3_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+              <geom name="section_1_element_4" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+              <site name="wire_1_section_1_joint_3" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+              <site name="wire_2_section_1_joint_3" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+              <site name="wire_3_section_1_joint_3" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+              <site name="wire_4_section_1_joint_3" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+              <site name="wire_5_section_1_joint_3" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+              <site name="wire_6_section_1_joint_3" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+              <body name="section_1_joint_body_4" pos="0.00175 0 0">
+                <joint name="section_1_joint_4_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                <joint name="section_1_joint_4_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                <geom name="section_1_element_5" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                <site name="wire_1_section_1_joint_4" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                <site name="wire_2_section_1_joint_4" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                <site name="wire_3_section_1_joint_4" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                <site name="wire_4_section_1_joint_4" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                <site name="wire_5_section_1_joint_4" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                <site name="wire_6_section_1_joint_4" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                <body name="section_1_joint_body_5" pos="0.00175 0 0">
+                  <joint name="section_1_joint_5_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                  <joint name="section_1_joint_5_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                  <geom name="section_1_element_6" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                  <site name="wire_1_section_1_joint_5" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                  <site name="wire_2_section_1_joint_5" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                  <site name="wire_3_section_1_joint_5" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                  <site name="wire_4_section_1_joint_5" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                  <site name="wire_5_section_1_joint_5" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                  <site name="wire_6_section_1_joint_5" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                  <body name="section_1_joint_body_6" pos="0.00175 0 0">
+                    <joint name="section_1_joint_6_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                    <joint name="section_1_joint_6_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                    <geom name="section_1_element_7" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                    <site name="wire_1_section_1_joint_6" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                    <site name="wire_2_section_1_joint_6" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                    <site name="wire_3_section_1_joint_6" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                    <site name="wire_4_section_1_joint_6" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                    <site name="wire_5_section_1_joint_6" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                    <site name="wire_6_section_1_joint_6" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                    <body name="section_1_joint_body_7" pos="0.00175 0 0">
+                      <joint name="section_1_joint_7_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                      <joint name="section_1_joint_7_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                      <geom name="section_1_element_8" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                      <site name="wire_1_section_1_joint_7" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                      <site name="wire_2_section_1_joint_7" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                      <site name="wire_3_section_1_joint_7" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                      <site name="wire_4_section_1_joint_7" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                      <site name="wire_5_section_1_joint_7" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                      <site name="wire_6_section_1_joint_7" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                      <body name="section_1_joint_body_8" pos="0.00175 0 0">
+                        <joint name="section_1_joint_8_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                        <joint name="section_1_joint_8_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                        <geom name="section_1_element_9" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                        <site name="wire_1_section_1_joint_8" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                        <site name="wire_2_section_1_joint_8" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                        <site name="wire_3_section_1_joint_8" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                        <site name="wire_4_section_1_joint_8" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                        <site name="wire_5_section_1_joint_8" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                        <site name="wire_6_section_1_joint_8" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                        <body name="section_1_joint_body_9" pos="0.00175 0 0">
+                          <joint name="section_1_joint_9_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                          <joint name="section_1_joint_9_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                          <geom name="section_1_element_10" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                          <site name="wire_1_section_1_joint_9" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                          <site name="wire_2_section_1_joint_9" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                          <site name="wire_3_section_1_joint_9" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                          <site name="wire_4_section_1_joint_9" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                          <site name="wire_5_section_1_joint_9" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                          <site name="wire_6_section_1_joint_9" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                          <body name="section_1_joint_body_10" pos="0.00175 0 0">
+                            <joint name="section_1_joint_10_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                            <joint name="section_1_joint_10_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                            <geom name="section_1_element_11" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                            <site name="wire_1_section_1_joint_10" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                            <site name="wire_2_section_1_joint_10" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                            <site name="wire_3_section_1_joint_10" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                            <site name="wire_4_section_1_joint_10" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                            <site name="wire_5_section_1_joint_10" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                            <site name="wire_6_section_1_joint_10" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                            <body name="section_1_joint_body_11" pos="0.00175 0 0">
+                              <joint name="section_1_joint_11_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                              <joint name="section_1_joint_11_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                              <geom name="section_1_element_12" type="cylinder" fromto="0 0 0 0.000875 0 0" size="0.00175" mass="2.43349239569e-05" rgba="0.25 0.55 0.9 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                              <site name="wire_1_section_1_joint_11" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                              <site name="wire_2_section_1_joint_11" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                              <site name="wire_3_section_1_joint_11" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                              <site name="wire_4_section_1_joint_11" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                              <site name="wire_5_section_1_joint_11" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                              <site name="wire_6_section_1_joint_11" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                              <body name="section_interface" pos="0.000875 0 0">
+                                <site name="interface_center" pos="0 0 0" size="0.00015" rgba="0 1 0 1" />
+                                <site name="measurement_kp_3" pos="0 0 0" size="0.00022" rgba="1 0.85 0.05 0.9" group="5" />
+                                <geom name="inter_section_rigid" type="cylinder" fromto="0 0 0 0.006 0 0" size="0.00203" mass="0" rgba="0.22 0.25 0.30 1" contype="0" conaffinity="0" />
+                                <geom name="inter_section_rigid_collision" type="capsule" fromto="0 0 0 0.006 0 0" size="0.00175" mass="0" rgba="0.22 0.25 0.30 0" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" group="5" />
+                                <site name="wire_1_interface_inlet" pos="0 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                                <site name="wire_2_interface_inlet" pos="0 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                                <site name="wire_3_interface_inlet" pos="0 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                                <site name="wire_4_interface_inlet" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                <site name="wire_5_interface_inlet" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                <site name="wire_6_interface_inlet" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                <site name="wire_1_interface" pos="0.006 0.00154 0" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                                <site name="wire_2_interface" pos="0.006 -0.00077 0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                                <site name="wire_3_interface" pos="0.006 -0.00077 -0.00133367912183" size="7.5e-05" rgba="1.0 0.0 0.9 1" group="3" />
+                                <site name="wire_4_interface" pos="0.006 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                <site name="wire_5_interface" pos="0.006 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                <site name="wire_6_interface" pos="0.006 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                <body name="section_2_mount" pos="0.006 0 0">
+                                  <geom name="section_2_element_0" type="cylinder" fromto="0 0 0 0.000875 0 0" size="0.00175" mass="2.43349239569e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                  <body name="section_2_joint_body_0" pos="0.000875 0 0">
+                                    <joint name="section_2_joint_0_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                    <joint name="section_2_joint_0_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                    <geom name="section_2_element_1" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                    <site name="wire_4_section_2_joint_0" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                    <site name="wire_5_section_2_joint_0" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                    <site name="wire_6_section_2_joint_0" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                    <body name="section_2_joint_body_1" pos="0.00175 0 0">
+                                      <joint name="section_2_joint_1_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                      <joint name="section_2_joint_1_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                      <geom name="section_2_element_2" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                      <site name="wire_4_section_2_joint_1" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                      <site name="wire_5_section_2_joint_1" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                      <site name="wire_6_section_2_joint_1" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                      <body name="section_2_joint_body_2" pos="0.00175 0 0">
+                                        <joint name="section_2_joint_2_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                        <joint name="section_2_joint_2_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                        <geom name="section_2_element_3" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                        <site name="wire_4_section_2_joint_2" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                        <site name="wire_5_section_2_joint_2" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                        <site name="wire_6_section_2_joint_2" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                        <body name="section_2_joint_body_3" pos="0.00175 0 0">
+                                          <joint name="section_2_joint_3_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                          <joint name="section_2_joint_3_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                          <geom name="section_2_element_4" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                          <site name="wire_4_section_2_joint_3" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                          <site name="wire_5_section_2_joint_3" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                          <site name="wire_6_section_2_joint_3" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                          <body name="section_2_joint_body_4" pos="0.00175 0 0">
+                                            <joint name="section_2_joint_4_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                            <joint name="section_2_joint_4_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                            <geom name="section_2_element_5" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                            <site name="wire_4_section_2_joint_4" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                            <site name="wire_5_section_2_joint_4" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                            <site name="wire_6_section_2_joint_4" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                            <body name="section_2_joint_body_5" pos="0.00175 0 0">
+                                              <joint name="section_2_joint_5_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                              <joint name="section_2_joint_5_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                              <geom name="section_2_element_6" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                              <site name="wire_4_section_2_joint_5" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                              <site name="wire_5_section_2_joint_5" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                              <site name="wire_6_section_2_joint_5" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                              <body name="section_2_joint_body_6" pos="0.00175 0 0">
+                                                <joint name="section_2_joint_6_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                <joint name="section_2_joint_6_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                <geom name="section_2_element_7" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                                <site name="wire_4_section_2_joint_6" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                <site name="wire_5_section_2_joint_6" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                <site name="wire_6_section_2_joint_6" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                <body name="section_2_joint_body_7" pos="0.00175 0 0">
+                                                  <joint name="section_2_joint_7_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                  <joint name="section_2_joint_7_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                  <geom name="section_2_element_8" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                                  <site name="wire_4_section_2_joint_7" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                  <site name="wire_5_section_2_joint_7" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                  <site name="wire_6_section_2_joint_7" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                  <body name="section_2_joint_body_8" pos="0.00175 0 0">
+                                                    <joint name="section_2_joint_8_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                    <joint name="section_2_joint_8_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                    <geom name="section_2_element_9" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                                    <site name="wire_4_section_2_joint_8" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                    <site name="wire_5_section_2_joint_8" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                    <site name="wire_6_section_2_joint_8" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                    <body name="section_2_joint_body_9" pos="0.00175 0 0">
+                                                      <joint name="section_2_joint_9_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                      <joint name="section_2_joint_9_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                      <geom name="section_2_element_10" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                                      <site name="wire_4_section_2_joint_9" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                      <site name="wire_5_section_2_joint_9" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                      <site name="wire_6_section_2_joint_9" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                      <body name="section_2_joint_body_10" pos="0.00175 0 0">
+                                                        <joint name="section_2_joint_10_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                        <joint name="section_2_joint_10_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                        <geom name="section_2_element_11" type="cylinder" fromto="0 0 0 0.00175 0 0" size="0.00175" mass="4.86698479137e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                                        <site name="wire_4_section_2_joint_10" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                        <site name="wire_5_section_2_joint_10" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                        <site name="wire_6_section_2_joint_10" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                        <body name="section_2_joint_body_11" pos="0.00175 0 0">
+                                                          <joint name="section_2_joint_11_y" axis="0 1 0" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                          <joint name="section_2_joint_11_z" axis="0 0 1" type="hinge" pos="0 0 0" limited="true" range="-0.35 0.35" stiffness="0.058548571988" damping="0.006" armature="1e-10" />
+                                                          <geom name="section_2_element_12" type="cylinder" fromto="0 0 0 0.000875 0 0" size="0.00175" mass="2.43349239569e-05" rgba="0.25 0.82 0.52 0.72" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" />
+                                                          <site name="wire_4_section_2_joint_11" pos="0 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                          <site name="wire_5_section_2_joint_11" pos="0 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                          <site name="wire_6_section_2_joint_11" pos="0 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                          <body name="distal_tip_rigid" pos="0.000875 0 0">
+                                                            <geom name="distal_tip_rigid" type="cylinder" fromto="0 0 0 0.006 0 0" size="0.00203" mass="0" rgba="0.22 0.25 0.30 1" contype="0" conaffinity="0" />
+                                                            <geom name="distal_tip_rigid_collision" type="capsule" fromto="0 0 0 0.006 0 0" size="0.00175" mass="0" rgba="0.22 0.25 0.30 0" contype="1" conaffinity="0" margin="0.00005" condim="1" friction="0.3 0.001 0.0001" solref="0.005 2" solimp="0.9 0.95 0.001" group="5" />
+                                                            <site name="measurement_kp_6" pos="0 0 0" size="0.00022" rgba="1 0.85 0.05 0.9" group="5" />
+                                                            <site name="tip_center" pos="0.006 0 0" size="0.00018" rgba="1 0.2 0.1 1" />
+                                                            <site name="wire_4_tip" pos="0.006 0.00077 0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                            <site name="wire_5_tip" pos="0.006 -0.00154 1.88595607069e-19" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                            <site name="wire_6_tip" pos="0.006 0.00077 -0.00133367912183" size="7.5e-05" rgba="0.95 0.35 0.05 1" group="3" />
+                                                          </body>
+                                                        </body>
+                                                      </body>
+                                                    </body>
+                                                  </body>
+                                                  <site name="measurement_kp_5" pos="0.000875 0 0" size="0.00022" rgba="1 0.85 0.05 0.9" group="5" />
+                                                </body>
+                                              </body>
+                                            </body>
+                                          </body>
+                                          <site name="measurement_kp_4" pos="0.000875 0 0" size="0.00022" rgba="1 0.85 0.05 0.9" group="5" />
+                                        </body>
+                                      </body>
+                                    </body>
+                                  </body>
+                                </body>
+                              </body>
+                            </body>
+                          </body>
+                        </body>
+                      </body>
+                      <site name="measurement_kp_2" pos="0.000875 0 0" size="0.00022" rgba="1 0.85 0.05 0.9" group="5" />
+                    </body>
+                  </body>
+                </body>
+              </body>
+              <site name="measurement_kp_1" pos="0.000875 0 0" size="0.00022" rgba="1 0.85 0.05 0.9" group="5" />
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <tendon>
+    <spatial name="wire_1_tendon" width="8.625e-05" rgba="1.0 0.0 0.9 1">
+      <site site="wire_1_base" />
+      <site site="wire_1_section_1_joint_0" />
+      <site site="wire_1_section_1_joint_1" />
+      <site site="wire_1_section_1_joint_2" />
+      <site site="wire_1_section_1_joint_3" />
+      <site site="wire_1_section_1_joint_4" />
+      <site site="wire_1_section_1_joint_5" />
+      <site site="wire_1_section_1_joint_6" />
+      <site site="wire_1_section_1_joint_7" />
+      <site site="wire_1_section_1_joint_8" />
+      <site site="wire_1_section_1_joint_9" />
+      <site site="wire_1_section_1_joint_10" />
+      <site site="wire_1_section_1_joint_11" />
+      <site site="wire_1_interface_inlet" />
+      <site site="wire_1_interface" />
+    </spatial>
+    <spatial name="wire_2_tendon" width="8.625e-05" rgba="1.0 0.0 0.9 1">
+      <site site="wire_2_base" />
+      <site site="wire_2_section_1_joint_0" />
+      <site site="wire_2_section_1_joint_1" />
+      <site site="wire_2_section_1_joint_2" />
+      <site site="wire_2_section_1_joint_3" />
+      <site site="wire_2_section_1_joint_4" />
+      <site site="wire_2_section_1_joint_5" />
+      <site site="wire_2_section_1_joint_6" />
+      <site site="wire_2_section_1_joint_7" />
+      <site site="wire_2_section_1_joint_8" />
+      <site site="wire_2_section_1_joint_9" />
+      <site site="wire_2_section_1_joint_10" />
+      <site site="wire_2_section_1_joint_11" />
+      <site site="wire_2_interface_inlet" />
+      <site site="wire_2_interface" />
+    </spatial>
+    <spatial name="wire_3_tendon" width="8.625e-05" rgba="1.0 0.0 0.9 1">
+      <site site="wire_3_base" />
+      <site site="wire_3_section_1_joint_0" />
+      <site site="wire_3_section_1_joint_1" />
+      <site site="wire_3_section_1_joint_2" />
+      <site site="wire_3_section_1_joint_3" />
+      <site site="wire_3_section_1_joint_4" />
+      <site site="wire_3_section_1_joint_5" />
+      <site site="wire_3_section_1_joint_6" />
+      <site site="wire_3_section_1_joint_7" />
+      <site site="wire_3_section_1_joint_8" />
+      <site site="wire_3_section_1_joint_9" />
+      <site site="wire_3_section_1_joint_10" />
+      <site site="wire_3_section_1_joint_11" />
+      <site site="wire_3_interface_inlet" />
+      <site site="wire_3_interface" />
+    </spatial>
+    <spatial name="wire_4_tendon" width="8.625e-05" rgba="0.95 0.35 0.05 1">
+      <site site="wire_4_base" />
+      <site site="wire_4_section_1_joint_0" />
+      <site site="wire_4_section_1_joint_1" />
+      <site site="wire_4_section_1_joint_2" />
+      <site site="wire_4_section_1_joint_3" />
+      <site site="wire_4_section_1_joint_4" />
+      <site site="wire_4_section_1_joint_5" />
+      <site site="wire_4_section_1_joint_6" />
+      <site site="wire_4_section_1_joint_7" />
+      <site site="wire_4_section_1_joint_8" />
+      <site site="wire_4_section_1_joint_9" />
+      <site site="wire_4_section_1_joint_10" />
+      <site site="wire_4_section_1_joint_11" />
+      <site site="wire_4_interface_inlet" />
+      <site site="wire_4_interface" />
+      <site site="wire_4_section_2_joint_0" />
+      <site site="wire_4_section_2_joint_1" />
+      <site site="wire_4_section_2_joint_2" />
+      <site site="wire_4_section_2_joint_3" />
+      <site site="wire_4_section_2_joint_4" />
+      <site site="wire_4_section_2_joint_5" />
+      <site site="wire_4_section_2_joint_6" />
+      <site site="wire_4_section_2_joint_7" />
+      <site site="wire_4_section_2_joint_8" />
+      <site site="wire_4_section_2_joint_9" />
+      <site site="wire_4_section_2_joint_10" />
+      <site site="wire_4_section_2_joint_11" />
+      <site site="wire_4_tip" />
+    </spatial>
+    <spatial name="wire_5_tendon" width="8.625e-05" rgba="0.95 0.35 0.05 1">
+      <site site="wire_5_base" />
+      <site site="wire_5_section_1_joint_0" />
+      <site site="wire_5_section_1_joint_1" />
+      <site site="wire_5_section_1_joint_2" />
+      <site site="wire_5_section_1_joint_3" />
+      <site site="wire_5_section_1_joint_4" />
+      <site site="wire_5_section_1_joint_5" />
+      <site site="wire_5_section_1_joint_6" />
+      <site site="wire_5_section_1_joint_7" />
+      <site site="wire_5_section_1_joint_8" />
+      <site site="wire_5_section_1_joint_9" />
+      <site site="wire_5_section_1_joint_10" />
+      <site site="wire_5_section_1_joint_11" />
+      <site site="wire_5_interface_inlet" />
+      <site site="wire_5_interface" />
+      <site site="wire_5_section_2_joint_0" />
+      <site site="wire_5_section_2_joint_1" />
+      <site site="wire_5_section_2_joint_2" />
+      <site site="wire_5_section_2_joint_3" />
+      <site site="wire_5_section_2_joint_4" />
+      <site site="wire_5_section_2_joint_5" />
+      <site site="wire_5_section_2_joint_6" />
+      <site site="wire_5_section_2_joint_7" />
+      <site site="wire_5_section_2_joint_8" />
+      <site site="wire_5_section_2_joint_9" />
+      <site site="wire_5_section_2_joint_10" />
+      <site site="wire_5_section_2_joint_11" />
+      <site site="wire_5_tip" />
+    </spatial>
+    <spatial name="wire_6_tendon" width="8.625e-05" rgba="0.95 0.35 0.05 1">
+      <site site="wire_6_base" />
+      <site site="wire_6_section_1_joint_0" />
+      <site site="wire_6_section_1_joint_1" />
+      <site site="wire_6_section_1_joint_2" />
+      <site site="wire_6_section_1_joint_3" />
+      <site site="wire_6_section_1_joint_4" />
+      <site site="wire_6_section_1_joint_5" />
+      <site site="wire_6_section_1_joint_6" />
+      <site site="wire_6_section_1_joint_7" />
+      <site site="wire_6_section_1_joint_8" />
+      <site site="wire_6_section_1_joint_9" />
+      <site site="wire_6_section_1_joint_10" />
+      <site site="wire_6_section_1_joint_11" />
+      <site site="wire_6_interface_inlet" />
+      <site site="wire_6_interface" />
+      <site site="wire_6_section_2_joint_0" />
+      <site site="wire_6_section_2_joint_1" />
+      <site site="wire_6_section_2_joint_2" />
+      <site site="wire_6_section_2_joint_3" />
+      <site site="wire_6_section_2_joint_4" />
+      <site site="wire_6_section_2_joint_5" />
+      <site site="wire_6_section_2_joint_6" />
+      <site site="wire_6_section_2_joint_7" />
+      <site site="wire_6_section_2_joint_8" />
+      <site site="wire_6_section_2_joint_9" />
+      <site site="wire_6_section_2_joint_10" />
+      <site site="wire_6_section_2_joint_11" />
+      <site site="wire_6_tip" />
+    </spatial>
+  </tendon>
+  <actuator>
+    <position name="wire_1" tendon="wire_1_tendon" kp="30000" kv="0.5" ctrllimited="true" ctrlrange="0.0226895087231 0.0313004912769" forcelimited="true" forcerange="-15 0" />
+    <position name="wire_2" tendon="wire_2_tendon" kp="30000" kv="0.5" ctrllimited="true" ctrlrange="0.0226895087231 0.0313004912769" forcelimited="true" forcerange="-15 0" />
+    <position name="wire_3" tendon="wire_3_tendon" kp="30000" kv="0.5" ctrllimited="true" ctrlrange="0.0226895087231 0.0313004912769" forcelimited="true" forcerange="-15 0" />
+    <position name="wire_4" tendon="wire_4_tendon" kp="30000" kv="0.5" ctrllimited="true" ctrlrange="0.0453890174462 0.0626009825538" forcelimited="true" forcerange="-15 0" />
+    <position name="wire_5" tendon="wire_5_tendon" kp="30000" kv="0.5" ctrllimited="true" ctrlrange="0.0453890174462 0.0626009825538" forcelimited="true" forcerange="-15 0" />
+    <position name="wire_6" tendon="wire_6_tendon" kp="30000" kv="0.5" ctrllimited="true" ctrlrange="0.0453890174462 0.0626009825538" forcelimited="true" forcerange="-15 0" />
+  </actuator>
+  <sensor>
+    <framepos name="tip_position" objtype="site" objname="tip_center" />
+    <framequat name="tip_orientation" objtype="site" objname="tip_center" />
+    <actuatorfrc name="wire_1_force" actuator="wire_1" />
+    <actuatorfrc name="wire_2_force" actuator="wire_2" />
+    <actuatorfrc name="wire_3_force" actuator="wire_3" />
+    <actuatorfrc name="wire_4_force" actuator="wire_4" />
+    <actuatorfrc name="wire_5_force" actuator="wire_5" />
+    <actuatorfrc name="wire_6_force" actuator="wire_6" />
+  </sensor>
+  <keyframe>
+    <key name="straight_pretensioned" ctrl="0.02699 0.02699 0.02699 0.05399 0.05399 0.05399" />
+  </keyframe>
+</mujoco>

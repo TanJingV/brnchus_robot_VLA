@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="双段腱驱支气管镜机器人研究平台：MuJoCo 仿真、交互控制、中心线路径与多模态数据记录。">
+<title>Bronchus Robot · 连续体支气管镜机器人</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="nav"><a class="brand" href="#">BR<span> / </span>CONTINUUM ROBOTICS</a><nav aria-label="主导航"><a href="#demo">路径探索</a><a href="#method">建模方法</a><a href="#paper">论文</a><a href="https://github.com/TanJingV/brnchus_robot_VLA">GitHub ↗</a></nav></header>
+<main>
+<section class="hero">
+<p class="eyebrow">ROBOTICS RESEARCH PLATFORM / MuJoCo</p>
+<h1>向更深处探索。<br><span>双段连续体支气管镜机器人</span></h1>
+<p class="english">A two-section tendon-driven continuum robot for bronchoscopic navigation</p>
+<p class="intro">从腱驱连续体建模到腔道导航，将机器人控制、虚实环境切换与同步数据采集连接在同一研究平台中。</p>
+<div class="actions"><a class="button" href="#demo">探索分支路径 <span>↓</span></a><a class="button secondary" href="https://github.com/TanJingV/brnchus_robot_VLA">项目代码 ↗</a></div>
+<div class="stats"><div><b>02</b><span>主动连续体段</span></div><div><b>06</b><span>驱动腱线</span></div><div><b>3.5 <small>mm</small></b><span>模型外径</span></div><div><b>65</b><span>中心线末端分支</span></div></div>
+</section>
+<section id="demo" class="section">
+<div class="section-heading"><div><p class="eyebrow">01 / EXPLORE</p><h2>一棵腔道树，65 条探索路径。</h2></div><p>选择末端分支，查看从气管入口到末端的完整中心线。拖动旋转，滚轮缩放。</p></div>
+<div class="explorer"><div class="viewport"><canvas id="airway" tabindex="0" aria-label="可旋转的支气管中心线模型，方向键旋转，加减键缩放"></canvas><span class="view-label">CENTERLINE EXPLORER <i> / MODEL SPACE</i></span><span class="view-note">中心线几何展示 · 非实时物理仿真</span></div><aside><p class="eyebrow">TERMINAL BRANCH</p><label for="branch">末端分支</label><select id="branch"><option>加载路径…</option></select><div class="metric"><span>完整路径长度</span><b id="length">—</b></div><div class="metric"><span>轨迹点数</span><b id="points">—</b></div><label for="progress">沿路径探索 <output id="percentage">100%</output></label><input id="progress" type="range" min="0" max="100" value="100"><button id="reset" class="button secondary">重置视角</button><p id="status" role="status">正在读取导出的轨迹数据。</p><a class="text-link" href="assets/trajectories.csv" download>下载全部逐点轨迹 CSV ↗</a></aside></div>
+<p class="caption">数据来自项目 IGES 中心线导出：分支数不包含气管入口。路径长度为模型中心线弧长，不代表机器人实际行驶距离或导航成功率。</p>
+</section>
+<section class="section overview" id="overview"><p class="eyebrow">02 / PROJECT OVERVIEW</p><h2>连接模型、控制与观察。</h2><p class="body-copy">本项目面向双段腱驱连续体支气管镜的建模与控制研究。在 MuJoCo 中构建主动段、被动导管与肺部环境，提供近端及远端弯曲控制、插入控制、tip 相机视角和中心线路径导航模块。工作台支持真实环境与仿真环境入口，并记录多路画面、探头数据及机器人关键点位姿，供控制调试和后续数据分析使用。</p><div class="cards"><article><span>01</span><h3>机器人建模</h3><p>离散刚体单元、正交转动关节与空间腱走线，共同描述双段连续体的运动。</p></article><article><span>02</span><h3>交互与导航</h3><p>罗盘与手柄输入、插入轴控制、中心线路径以及虚拟相机，支持闭环控制研究。</p></article><article><span>03</span><h3>同步记录</h3><p>摄像头、MuJoCo 视图、控制界面和三个关键点位姿汇入同一记录会话。</p></article></div></section>
+<section class="section" id="method"><div class="section-heading"><div><p class="eyebrow">03 / MODELING</p><h2>两段主动骨架，六根驱动腱。</h2></div><p>以项目参数化模型为依据，展示末端结构与离散化方法。</p></div><figure class="diagram"><img src="assets/model.png" alt="双段连续体机器人整体结构、离散弯曲站及六腱截面布局" loading="lazy"><figcaption>54 mm 末端组件：两个 21 mm 主动段、6 mm 段间连接与 6 mm 远端头。每段含 12 个离散弯曲站，每站配置两个正交转动关节。</figcaption></figure><div class="method-row"><p>W1–W3 终止于段间连接；W4–W6 贯穿两段。模型保留连续走线带来的段间耦合，控制器通过腱长指令驱动弯曲。</p><a class="text-link" href="https://github.com/TanJingV/brnchus_robot_VLA/tree/main/two_segment_tdcr_opencr">查看模型与参数 ↗</a></div></section>
+<section class="section" id="data"><p class="eyebrow">04 / RECORDING</p><h2>每一次运动，都留下可分析的数据。</h2><div class="data-grid"><div><h3>多路视觉</h3><p>真实／tip 摄像头、虚拟摄像头、MuJoCo 实时视图与遥控界面；分割启用时记录 Mask 画面。</p></div><div><h3>三处关键位姿</h3><p>末端 tip、中间平台、主从连接处的位置与四元数，配合帧序号和时间字段记录。</p></div><div><h3>分支轨迹</h3><p>65 条入口到末端的完整路径，包含三维坐标、累计弧长、归一化进度及源曲线索引。</p><a class="text-link" href="assets/summary.csv" download>下载分支汇总 CSV ↗</a></div></div></section>
+<section class="section paper" id="paper"><p class="eyebrow">05 / RESEARCH IN PROGRESS</p><h2>面向 ICRA 的未发表研究</h2><p class="body-copy">本项目关联一篇尚未发表的 ICRA 方向论文。正式标题、作者、摘要与论文稿件将在资料确认后更新。本页目前呈现研究平台与模型设计，论文投稿及录用状态尚未确认。</p><div class="paper-links"><a class="button secondary" href="assets/model.png">建模示意图 ↗</a><a class="button secondary" href="https://github.com/TanJingV/brnchus_robot_VLA">研究代码 ↗</a></div></section>
+</main><footer><a class="brand" href="#">BR / CONTINUUM ROBOTICS</a><p>建模思路参考 <a href="https://continuumroboticslab.github.io/opencr-mujoco/">OpenCR MuJoCo</a>。本项目独立开发；图示与路径数据来自本仓库。</p><a href="https://github.com/TanJingV/brnchus_robot_VLA/issues">反馈问题 ↗</a></footer>
+<script src="app.js" defer></script>
+</body></html>

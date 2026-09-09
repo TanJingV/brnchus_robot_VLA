@@ -1,6 +1,10 @@
 ﻿import sys
 import os
 import time
+import json
+import csv
+import copy
+import importlib.util
 
 # MuJoCo, PyTorch, OpenCV, VTK, and MKL can load different OpenMP runtimes on
 # Windows. Without this guard the process may abort when simulation is enabled.
@@ -21,7 +25,7 @@ from pyvistaqt import QtInteractor
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5 import QtGui
 import torch
-from unet import Unet
+from Visual_information.legacy_segmentation.unet import Unet
 from scipy.spatial.transform import Rotation as R
 import pyvista as pv
 import serial.tools.list_ports
@@ -42,6 +46,26 @@ from torchvision import transforms
 from PIL import Image
 import pyqtgraph as pg
 from collections import deque
+from autonomous_navigation_v2 import AdaptiveRecedingHorizonNavigator
+from two_segment_tdcr_opencr.contact_stabilization import ActiveTipContactRegularizer
+from two_segment_tdcr_opencr.passive_joint_control import (
+    PassiveActiveFollowerController,
+    PassiveJointParameterController,
+)
+from two_segment_tdcr_opencr.tendon_compass_control import TendonCompassController
+from dual_camera_recording import (
+    DualCameraRecordingMixin,
+    inspect_video_file,
+    open_compatible_avi_writer,
+)
+from simulation_automation_mixin import (
+    SimulationAutomationMixin,
+    bind_runtime_globals as bind_automation_runtime_globals,
+)
+from simulation_runtime_mixin import (
+    SimulationRuntimeMixin,
+    bind_runtime_globals as bind_simulation_runtime_globals,
+)
 
 try:
     import mujoco
@@ -54,11 +78,20 @@ except Exception:
     mujoco_viewer = None
 
 DEFAULT_MUJOCO_XML = os.path.join(PROJECT_ROOT, "meshes", "cable_robot_bronch_final_seg2.xml")
+REAL_ENVIRONMENT_SCRIPT = os.path.join(
+    BASE_DIR, "界面1220（可以使用版本+数据记录）双探子版.py"
+)
 MUJOCO_TIP_CAMERA = "tip_camera"
-MUJOCO_STEPS_PER_FRAME = 100
-MUJOCO_MAX_TORQUE = 1.0
-MUJOCO_TORQUE_SMOOTH = 0.15
+MUJOCO_WIDE_FOVY = 70.0
+MUJOCO_STEPS_PER_FRAME = 20
 MUJOCO_COMPASS_RADIUS = 130
+MUJOCO_MAX_INSERTION_RATE = 0.08
+MUJOCO_MANUAL_INSERTION_LEAD_M = 0.015
+MUJOCO_AUTO_INSERTION_STEP_LIMIT_M = 0.00035
+MUJOCO_AUTO_LEAD_MIN_M = 0.004
+MUJOCO_AUTO_LEAD_MAX_M = 0.012
+MUJOCO_AUTO_STALL_RAMP_FRAMES = 40
+MUJOCO_LUNG_DISPLAY_GROUP = 4
 
 
 def mujoco_quat_diff_angle(q1, q2):
@@ -80,8 +113,204 @@ def create_mc_connection(ip: str):
         return TUA.TrioConnectionTCP(EventHandler, ip)
 
 
+class WindowsXInputGamepad:
+    """Small dependency-free XInput reader for common Windows gamepads."""
+
+    def __init__(self, index=0):
+        self.index = index
+        self._xinput = None
+        self._state_type = None
+        self._ctypes = None
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            self._ctypes = ctypes
+
+            class Gamepad(ctypes.Structure):
+                _fields_ = [
+                    ("buttons", ctypes.c_ushort),
+                    ("left_trigger", ctypes.c_ubyte),
+                    ("right_trigger", ctypes.c_ubyte),
+                    ("thumb_lx", ctypes.c_short),
+                    ("thumb_ly", ctypes.c_short),
+                    ("thumb_rx", ctypes.c_short),
+                    ("thumb_ry", ctypes.c_short),
+                ]
+
+            class State(ctypes.Structure):
+                _fields_ = [("packet_number", ctypes.c_uint), ("gamepad", Gamepad)]
+
+            for dll_name in ("xinput1_4", "xinput1_3", "xinput9_1_0"):
+                try:
+                    self._xinput = ctypes.WinDLL(dll_name)
+                    self._state_type = State
+                    break
+                except OSError:
+                    continue
+        except Exception:
+            self._xinput = None
+
+    @staticmethod
+    def _axis(value, deadzone=0.12):
+        normalized = float(value) / (32767.0 if value >= 0 else 32768.0)
+        if abs(normalized) <= deadzone:
+            return 0.0
+        return math.copysign((abs(normalized) - deadzone) / (1.0 - deadzone), normalized)
+
+    def read(self):
+        if self._xinput is None or self._state_type is None:
+            return None
+        state = self._state_type()
+        if self._xinput.XInputGetState(self.index, self._ctypes.byref(state)) != 0:
+            return None
+        pad = state.gamepad
+        return {
+            "left": np.array([self._axis(pad.thumb_lx), self._axis(pad.thumb_ly)]),
+            "right": np.array([self._axis(pad.thumb_rx), self._axis(pad.thumb_ry)]),
+            "left_trigger": float(pad.left_trigger) / 255.0,
+            "right_trigger": float(pad.right_trigger) / 255.0,
+        }
+
+
+class RobotInitialPoseWindow(QtWidgets.QWidget):
+    """Dedicated editor for the complete robot assembly's initial pose."""
+
+    def __init__(self, simulator):
+        super().__init__(None, Qt.Tool)
+        self.simulator = simulator
+        self.setWindowTitle("MuJoCo 机器人整体初始位姿")
+        self.setMinimumWidth(420)
+        self.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.setStyleSheet("""
+            QWidget {
+                background: #f5f5f7;
+                color: #1d1d1f;
+                font-family: "Microsoft YaHei UI";
+                font-size: 13px;
+            }
+            QLabel#poseTitle { font-size: 19px; font-weight: 650; }
+            QLabel#poseHint { color: #6e6e73; }
+            QGroupBox {
+                background: white;
+                border: 1px solid #d9d9df;
+                border-radius: 12px;
+                margin-top: 10px;
+                padding: 14px 10px 10px 10px;
+                font-weight: 600;
+            }
+            QDoubleSpinBox {
+                min-height: 30px;
+                padding: 2px 7px;
+                background: #fbfbfd;
+                border: 1px solid #c7c7cc;
+                border-radius: 7px;
+            }
+            QPushButton {
+                min-height: 34px;
+                border-radius: 9px;
+                padding: 3px 14px;
+                background: #e9e9ee;
+                font-weight: 600;
+            }
+            QPushButton#applyPose { color: white; background: #0071e3; }
+            QLabel#poseStatus {
+                background: white;
+                border: 1px solid #d9d9df;
+                border-radius: 9px;
+                padding: 9px;
+                color: #4b4b50;
+            }
+        """)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 18)
+        root.setSpacing(11)
+        title = QLabel("机器人整体初始位姿")
+        title.setObjectName("poseTitle")
+        root.addWidget(title)
+        hint = QLabel("相对原始模型调整整套机器人；应用后自动返回 Home 状态。")
+        hint.setObjectName("poseHint")
+        root.addWidget(hint)
+
+        self.position_boxes = self._add_pose_group(
+            root, "世界坐标平移", ("X", "Y", "Z"),
+            -500.0, 500.0, 1.0, " mm",
+        )
+        self.rotation_boxes = self._add_pose_group(
+            root, "世界坐标旋转", ("Roll X", "Pitch Y", "Yaw Z"),
+            -180.0, 180.0, 1.0, " deg",
+        )
+
+        buttons = QHBoxLayout()
+        reset_button = QPushButton("归零")
+        reset_button.clicked.connect(self.reset_pose)
+        apply_button = QPushButton("应用并重置机器人")
+        apply_button.setObjectName("applyPose")
+        apply_button.clicked.connect(self.apply_pose)
+        buttons.addWidget(reset_button)
+        buttons.addWidget(apply_button, 1)
+        root.addLayout(buttons)
+
+        self.status_label = QLabel()
+        self.status_label.setObjectName("poseStatus")
+        root.addWidget(self.status_label)
+        self.sync_from_simulator()
+
+    @staticmethod
+    def _add_pose_group(
+        root, title, labels, minimum, maximum, step, suffix
+    ):
+        group = QtWidgets.QGroupBox(title)
+        layout = QtWidgets.QGridLayout(group)
+        boxes = []
+        for column, label_text in enumerate(labels):
+            layout.addWidget(QLabel(label_text), 0, column)
+            box = QtWidgets.QDoubleSpinBox()
+            box.setRange(minimum, maximum)
+            box.setDecimals(2)
+            box.setSingleStep(step)
+            box.setSuffix(suffix)
+            layout.addWidget(box, 1, column)
+            boxes.append(box)
+        root.addWidget(group)
+        return boxes
+
+    def sync_from_simulator(self):
+        state = self.simulator.get_robot_initial_pose()
+        for box, value in zip(self.position_boxes, state["translation_mm"]):
+            box.setValue(float(value))
+        for box, value in zip(self.rotation_boxes, state["rotation_rpy_deg"]):
+            box.setValue(float(value))
+        self._set_status(state)
+
+    def _set_status(self, state):
+        world = np.asarray(state["world_position_mm"], dtype=float)
+        self.status_label.setText(
+            "根节点世界坐标: "
+            f"X {world[0]:.2f} / Y {world[1]:.2f} / Z {world[2]:.2f} mm"
+        )
+
+    def apply_pose(self):
+        translation = [box.value() for box in self.position_boxes]
+        rotation = [box.value() for box in self.rotation_boxes]
+        try:
+            state = self.simulator.set_robot_initial_pose(
+                translation, rotation
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "整体位姿设置失败", str(exc))
+            return
+        self._set_status(state)
+
+    def reset_pose(self):
+        for box in (*self.position_boxes, *self.rotation_boxes):
+            box.setValue(0.0)
+        self.apply_pose()
+
+
 class MujocoPhysicsControlPanel:
-    """OpenCV control panel matching meshes/run_physics_model_control.py behavior."""
+    """Two-compass control panel driving the six physical tendon lengths."""
 
     def __init__(self, model, data, simulator):
         self.model = model
@@ -92,7 +321,43 @@ class MujocoPhysicsControlPanel:
         self.c2_center = (600, 500)
         self.dragging = None
         self.slider_val = 0.0
+        self.slider_command = 0.0
+        self.previous_auto_insertion_delta = 0.0
+        self.last_auto_slider_position_m = None
+        self.auto_insertion_stall_frames = 0
+        self.last_control_wall_time = time.perf_counter()
         self.calibration_capture = False
+        self.input_mode = "ui"
+        self.gamepad = WindowsXInputGamepad()
+        self.gamepad_connected = False
+        self.window_open = False
+        self.latest_frame_bgr = None
+        self.passive_debug_locked = False
+        self.passive_debug_button_rect = (28, 38, 252, 108)
+        self.lung_model_enabled = bool(
+            getattr(simulator, "lung_model_enabled", True)
+        )
+        self.lung_toggle_button_rect = (570, 42, 770, 102)
+        self.robot_pose_button_rect = (590, 118, 770, 168)
+        self.auto_action = None
+        self.distal_feedback_integral_gain = 0.03
+        self.distal_feedback_limit = 0.30
+        self.distal_feedback_correction = np.zeros(2, dtype=float)
+        # Manual compass/gamepad screen-right is raw tendon -X. Keep the
+        # visual knob intuitive and invert only the horizontal motor command.
+        self.manual_compass_motor_map = np.array(
+            [[-1.0, 0.0], [0.0, 1.0]], dtype=float
+        )
+        self.distal_proximal_feedforward_map = np.array(
+            [[0.94, -0.026], [0.0, 0.92]], dtype=float
+        )
+        # Identified Wire 4-6 command to distal [rotation_y, rotation_z].
+        self.distal_motor_rotation_map = np.array(
+            [[0.0, -2.4741], [2.4889, 0.0516]], dtype=float
+        )
+        self.distal_rotation_motor_map = np.linalg.pinv(
+            self.distal_motor_rotation_map
+        )
 
         self.body_base_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_plate")
         self.body_mid_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "seg1_B_last")
@@ -100,38 +365,133 @@ class MujocoPhysicsControlPanel:
             self.body_mid_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "seg2_body")
         self.body_tip_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "end_6")
         self.slider_act = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "act_slid_M")
+        self.slider_joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "slid_M")
+        self.slider_qpos_adr = (
+            int(model.jnt_qposadr[self.slider_joint]) if self.slider_joint != -1 else -1
+        )
+        self.tendon_controller = simulator.tendon_controller
+        self.interface_site_id = mujoco.mj_name2id(
+            model, mujoco.mjtObj.mjOBJ_SITE, "interface_center"
+        )
+        self.tip_site_id = mujoco.mj_name2id(
+            model, mujoco.mjtObj.mjOBJ_SITE, "tip_center"
+        )
         self.segments = [
-            {"name": "Seg1 (Proximal)", "sites": ["s1", "s3", "s5"],
-             "ctrl_vec": np.array([0.0, 0.0]), "torque_mag": 0.0, "real_angle": 0.0},
-            {"name": "Seg2 (Distal)", "sites": ["s2", "s4", "s6"],
-             "ctrl_vec": np.array([0.0, 0.0]), "torque_mag": 0.0, "real_angle": 0.0},
+            {"name": "Proximal / Wire 1-3", "wires": (1, 2, 3),
+             "wire_angles": (0.0, 120.0, 240.0),
+             "ctrl_vec": np.zeros(2), "motor_vec": np.zeros(2),
+             "bend_cmd_deg": 0.0, "direction_deg": 0.0,
+             "motor_bend_deg": 0.0, "motor_direction_deg": 0.0,
+             "pull_mm": np.zeros(3), "real_angle": 0.0},
+            {"name": "Distal / Wire 4-6", "wires": (4, 5, 6),
+             "wire_angles": (60.0, 180.0, 300.0),
+             "ctrl_vec": np.zeros(2), "motor_vec": np.zeros(2),
+             "bend_cmd_deg": 0.0, "direction_deg": 0.0,
+             "motor_bend_deg": 0.0, "motor_direction_deg": 0.0,
+             "pull_mm": np.zeros(3), "real_angle": 0.0},
         ]
-        self.cables = []
-        for seg_idx, seg in enumerate(self.segments):
-            for site_name in seg["sites"]:
-                sid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, site_name)
-                if sid != -1:
-                    self.cables.append({
-                        "id": sid,
-                        "name": site_name,
-                        "seg_idx": seg_idx,
-                        "torque": np.zeros(3),
-                    })
 
+        self._open_ui_window()
+
+    def _open_ui_window(self):
+        if self.window_open:
+            return
         cv2.namedWindow(self.win_name)
         cv2.setMouseCallback(self.win_name, self.mouse_callback)
+        self.window_open = True
+
+    def _close_ui_window(self):
+        if not self.window_open:
+            return
+        try:
+            cv2.destroyWindow(self.win_name)
+        except Exception:
+            pass
+        self.window_open = False
+
+    def set_input_mode(self, mode):
+        if mode not in ("ui", "gamepad"):
+            raise ValueError(f"不支持的仿真控制模式: {mode}")
+        self.input_mode = mode
+        self.dragging = None
+        if mode == "ui":
+            self._open_ui_window()
+        else:
+            self._close_ui_window()
+
+    def connect_gamepad(self):
+        self.gamepad_connected = self.gamepad.read() is not None
+        return self.gamepad_connected
+
+    def _update_gamepad_input(self, elapsed):
+        state = self.gamepad.read()
+        self.gamepad_connected = state is not None
+        if state is None:
+            self.segments[0]["ctrl_vec"][:] = 0.0
+            self.segments[1]["ctrl_vec"][:] = 0.0
+            if self.slider_qpos_adr >= 0:
+                self.slider_command = float(self.data.qpos[self.slider_qpos_adr])
+                self.slider_val = self.slider_command / 0.577
+            return
+        self.segments[0]["ctrl_vec"] = np.asarray(state["left"], dtype=float)
+        self.segments[1]["ctrl_vec"] = np.asarray(state["right"], dtype=float)
+        insertion_delta = state["right_trigger"] - state["left_trigger"]
+        actual = float(self.data.qpos[self.slider_qpos_adr]) if self.slider_qpos_adr >= 0 else self.slider_command
+        if abs(insertion_delta) < 0.05:
+            self.slider_command = actual
+        else:
+            direction = math.copysign(1.0, insertion_delta)
+            base = self.slider_command
+            if (base - actual) * direction < 0.0:
+                base = actual
+            self.slider_command = float(np.clip(
+                base + insertion_delta * MUJOCO_MAX_INSERTION_RATE * elapsed,
+                max(0.0, actual - MUJOCO_MANUAL_INSERTION_LEAD_M), min(0.577, actual + MUJOCO_MANUAL_INSERTION_LEAD_M),
+            ))
+        self.slider_val = float(np.clip(self.slider_command / 0.577, 0.0, 1.0))
 
     def set_calibration_capture(self, enabled=True):
         self.calibration_capture = enabled
 
+    def set_passive_debug_lock(self, enabled):
+        self.passive_debug_locked = bool(enabled)
+        state = self.simulator.passive_joint_controller.set_debug_lock(
+            self.data, self.passive_debug_locked
+        )
+        self.simulator.passive_follower_controller.reset()
+        return state
+
+    def _passive_debug_button_hit(self, x, y):
+        x1, y1, x2, y2 = self.passive_debug_button_rect
+        return x1 <= x <= x2 and y1 <= y <= y2
+
+    def set_lung_model_enabled(self, enabled):
+        state = self.simulator.set_lung_model_enabled(enabled)
+        self.lung_model_enabled = bool(state["enabled"])
+        return state
+
+    def _lung_toggle_button_hit(self, x, y):
+        x1, y1, x2, y2 = self.lung_toggle_button_rect
+        return x1 <= x <= x2 and y1 <= y <= y2
+
+    def _robot_pose_button_hit(self, x, y):
+        x1, y1, x2, y2 = self.robot_pose_button_rect
+        return x1 <= x <= x2 and y1 <= y <= y2
+
     def mouse_callback(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
-            if self._inside_calibration_button(x, y):
-                self.calibration_capture = not self.calibration_capture
-                if self.calibration_capture:
-                    self.simulator.model_pick_requested = True
+            if self._passive_debug_button_hit(x, y):
+                self.dragging = None
+                self.set_passive_debug_lock(not self.passive_debug_locked)
                 return
-
+            if self._lung_toggle_button_hit(x, y):
+                self.dragging = None
+                self.set_lung_model_enabled(not self.lung_model_enabled)
+                return
+            if self._robot_pose_button_hit(x, y):
+                self.dragging = None
+                self.simulator.show_robot_pose_control()
+                return
             d1 = math.hypot(x - self.c1_center[0], y - self.c1_center[1])
             d2 = math.hypot(x - self.c2_center[0], y - self.c2_center[1])
             if d1 < MUJOCO_COMPASS_RADIUS + 20:
@@ -140,6 +500,7 @@ class MujocoPhysicsControlPanel:
                 self.dragging = 1
             elif y > 700:
                 self.dragging = 2
+                self._set_manual_slider(x)
         elif event == cv2.EVENT_MOUSEMOVE:
             if self.dragging == 0:
                 dx = x - self.c1_center[0]
@@ -150,52 +511,212 @@ class MujocoPhysicsControlPanel:
                 dy = -(y - self.c2_center[1])
                 self.segments[1]["ctrl_vec"] = np.array([dx, dy]) / MUJOCO_COMPASS_RADIUS
             elif self.dragging == 2:
-                self.slider_val = float(np.clip((x - 50) / 700.0, 0.0, 1.0))
+                self._set_manual_slider(x)
         elif event == cv2.EVENT_LBUTTONUP:
             self.dragging = None
 
-    def _inside_calibration_button(self, x, y):
-        return 590 <= x <= 760 and 300 <= y <= 342
+    def _set_manual_slider(self, x):
+        requested = float(np.clip((x - 50) / 700.0, 0.0, 1.0))
+        change = requested - self.slider_val
+        if self.slider_qpos_adr >= 0 and abs(change) > 1e-9:
+            actual = float(self.data.qpos[self.slider_qpos_adr])
+            # Reverse from the measured position instead of chasing old demand.
+            if change * (self.slider_command - actual) < 0.0:
+                self.slider_command = actual
+                requested = float(np.clip(actual / 0.577 + change, 0.0, 1.0))
+        self.slider_val = requested
 
     def update_control(self):
-        if self.slider_act != -1:
-            self.data.ctrl[self.slider_act] = self.slider_val * 0.577
-
-        for i, seg in enumerate(self.segments):
-            ctrl = seg["ctrl_vec"]
-            limit = 0.7 if i == 1 else 1.0
-            mag = np.linalg.norm(ctrl)
-            ctrl_clamped = ctrl.copy()
-            if mag > limit:
-                ctrl_clamped = ctrl * (limit / mag)
-                mag = limit
-
-            total_moment = mag * MUJOCO_MAX_TORQUE
-            seg["torque_mag"] = total_moment
-            site_torque = np.array([0.0, -ctrl_clamped[1] * MUJOCO_MAX_TORQUE,
-                                    ctrl_clamped[0] * MUJOCO_MAX_TORQUE]) / 3.0
-            for cable in self.cables:
-                if cable["seg_idx"] == i:
-                    cable["torque"] = (
-                        (1.0 - MUJOCO_TORQUE_SMOOTH) * cable["torque"]
-                        + MUJOCO_TORQUE_SMOOTH * site_torque
+        now = time.perf_counter()
+        elapsed = float(np.clip(now - self.last_control_wall_time, 0.0, 0.1))
+        self.last_control_wall_time = now
+        if self.input_mode == "gamepad" and self.auto_action is None:
+            self._update_gamepad_input(elapsed)
+        if self.auto_action is not None:
+            proximal = np.asarray(
+                self.auto_action.get("steering_proximal", self.auto_action.get("steering", [0.0, 0.0])),
+                dtype=float,
+            )
+            distal = np.asarray(
+                self.auto_action.get("steering_distal", self.auto_action.get("steering", [0.0, 0.0])),
+                dtype=float,
+            )
+            self.segments[0]["ctrl_vec"] = proximal
+            self.segments[1]["ctrl_vec"] = distal
+            insertion_delta = float(self.auto_action.get("insertion_delta", 0.0))
+            if self.slider_qpos_adr >= 0:
+                # Automatic insertion is an incremental closed loop around the
+                # physical slider position. A bounded command lead supplies
+                # useful insertion force, but a direction change starts from
+                # the measured position so an unstick reversal acts at once.
+                actual_slider_m = float(self.data.qpos[self.slider_qpos_adr])
+                insertion_step_m = float(np.clip(
+                    insertion_delta * 0.577,
+                    -MUJOCO_AUTO_INSERTION_STEP_LIMIT_M,
+                    MUJOCO_AUTO_INSERTION_STEP_LIMIT_M,
+                ))
+                actual_motion_m = (
+                    0.0
+                    if self.last_auto_slider_position_m is None
+                    else abs(actual_slider_m - self.last_auto_slider_position_m)
+                )
+                requested_forward = insertion_delta > 1e-9
+                if requested_forward and actual_motion_m < 0.00001:
+                    self.auto_insertion_stall_frames = min(
+                        MUJOCO_AUTO_STALL_RAMP_FRAMES,
+                        self.auto_insertion_stall_frames + 1,
                     )
+                elif actual_motion_m > 0.00003 or not requested_forward:
+                    self.auto_insertion_stall_frames = max(
+                        0, self.auto_insertion_stall_frames - 3
+                    )
+                self.last_auto_slider_position_m = actual_slider_m
+                stall_ratio = float(np.clip(
+                    self.auto_insertion_stall_frames
+                    / MUJOCO_AUTO_STALL_RAMP_FRAMES,
+                    0.0,
+                    1.0,
+                ))
+                command_lead_m = (
+                    MUJOCO_AUTO_LEAD_MIN_M
+                    + stall_ratio
+                    * (MUJOCO_AUTO_LEAD_MAX_M - MUJOCO_AUTO_LEAD_MIN_M)
+                )
+                direction_changed = bool(
+                    insertion_delta * self.previous_auto_insertion_delta < 0.0
+                )
+                if direction_changed or abs(insertion_delta) <= 1e-9:
+                    command_base_m = actual_slider_m
+                else:
+                    command_base_m = self.slider_command
+                target_slider_m = float(np.clip(
+                    command_base_m + insertion_step_m,
+                    max(0.0, actual_slider_m - command_lead_m),
+                    min(0.577, actual_slider_m + command_lead_m),
+                ))
+                self.slider_val = target_slider_m / 0.577
+                self.slider_command = target_slider_m
+                self.previous_auto_insertion_delta = insertion_delta
+            else:
+                self.slider_val = float(np.clip(
+                    self.slider_val + insertion_delta, 0.0, 1.0
+                ))
+        else:
+            self.previous_auto_insertion_delta = 0.0
+            self.last_auto_slider_position_m = None
+            self.auto_insertion_stall_frames = 0
+
+        if self.slider_act != -1:
+            target = self.slider_val * 0.577
+            max_step = MUJOCO_MAX_INSERTION_RATE * elapsed
+            if self.auto_action is None and self.input_mode != "gamepad":
+                delta = np.clip(
+                    target - self.slider_command,
+                    -max_step,
+                    max_step,
+                )
+                self.slider_command += float(delta)
+                if self.slider_qpos_adr >= 0:
+                    actual = float(self.data.qpos[self.slider_qpos_adr])
+                    self.slider_command = float(np.clip(
+                        self.slider_command, max(0.0, actual - MUJOCO_MANUAL_INSERTION_LEAD_M),
+                        min(0.577, actual + MUJOCO_MANUAL_INSERTION_LEAD_M),
+                    ))
+            self.data.ctrl[self.slider_act] = self.slider_command
+
+        desired_vectors = [
+            self._clamp_compass_vector(segment["ctrl_vec"])
+            for segment in self.segments
+        ]
+        if self.auto_action is None:
+            desired_vectors = [self._manual_bend_vector(v) for v in desired_vectors]
+            motor_vectors = self._manual_motor_vectors(*desired_vectors)
+        else:
+            self.distal_feedback_correction[:] = 0.0
+            motor_vectors = desired_vectors
+
+        for segment_index, (segment, desired, motor) in enumerate(zip(
+            self.segments, desired_vectors, motor_vectors
+        )):
+            # Keep raw input for the knob; shaping it in-place compounds gain.
+            segment["ctrl_vec"] = self._clamp_compass_vector(segment["ctrl_vec"])
+            segment["motor_vec"] = motor
+            desired_magnitude, desired_direction = self._vector_metrics(desired)
+            motor_magnitude, motor_direction = self._vector_metrics(motor)
+            segment["bend_cmd_deg"] = (
+                self.tendon_controller.max_bend_deg * desired_magnitude
+            )
+            segment["direction_deg"] = desired_direction
+            segment["motor_bend_deg"] = (
+                self.tendon_controller.max_bend_deg * motor_magnitude
+            )
+            segment["motor_direction_deg"] = motor_direction
+            self.tendon_controller.set_segment_vector(segment_index, motor)
+            state = self.tendon_controller.segment_state(segment_index)
+            segment["pull_mm"] = state["pull_mm"]
+
+    @staticmethod
+    def _manual_bend_vector(vector):
+        vector = MujocoPhysicsControlPanel._clamp_compass_vector(vector)
+        return vector * (0.5 * float(np.linalg.norm(vector)))
+
+    @staticmethod
+    def _clamp_compass_vector(vector):
+        vector = np.asarray(vector, dtype=float).reshape(2)
+        magnitude = float(np.linalg.norm(vector))
+        return vector / magnitude if magnitude > 1.0 else vector
+
+    @staticmethod
+    def _vector_metrics(vector):
+        vector = np.asarray(vector, dtype=float)
+        magnitude = float(np.linalg.norm(vector))
+        direction = (
+            math.degrees(math.atan2(float(vector[1]), float(vector[0]))) % 360.0
+            if magnitude > 1e-9 else 0.0
+        )
+        return magnitude, direction
+
+    def _measured_distal_kinematic_vector(self):
+        if self.interface_site_id < 0 or self.tip_site_id < 0:
+            return np.zeros(2, dtype=float)
+        interface_rotation = self.data.site_xmat[
+            self.interface_site_id
+        ].reshape(3, 3)
+        tip_rotation = self.data.site_xmat[self.tip_site_id].reshape(3, 3)
+        relative_rotation = interface_rotation.T @ tip_rotation
+        rotation_vector = R.from_matrix(relative_rotation).as_rotvec()
+        return self.distal_rotation_motor_map @ rotation_vector[1:3]
+
+    def _manual_motor_vectors(self, proximal_desired, distal_desired):
+        proximal_motor_desired = (
+            self.manual_compass_motor_map @ proximal_desired
+        )
+        distal_motor_desired = self.manual_compass_motor_map @ distal_desired
+        measured_distal = self._measured_distal_kinematic_vector()
+        self.distal_feedback_correction += self.distal_feedback_integral_gain * (
+            distal_motor_desired - measured_distal
+        )
+        correction_norm = float(np.linalg.norm(self.distal_feedback_correction))
+        if correction_norm > self.distal_feedback_limit:
+            self.distal_feedback_correction *= (
+                self.distal_feedback_limit / correction_norm
+            )
+        proximal_feedforward = (
+            self.distal_proximal_feedforward_map @ proximal_motor_desired
+        )
+        distal_motor = self.tendon_controller.clamp_segment_vector(
+            1,
+            proximal_feedforward
+            + distal_motor_desired
+            + self.distal_feedback_correction,
+        )
+        return proximal_motor_desired, distal_motor
 
     def apply_physics(self):
-        for cable in self.cables:
-            torque = cable["torque"]
-            if np.linalg.norm(torque) <= 1e-6:
-                continue
-            sid = cable["id"]
-            mujoco.mj_applyFT(
-                self.model,
-                self.data,
-                np.zeros(3),
-                torque,
-                self.data.site_xpos[sid],
-                self.model.site_bodyid[sid],
-                self.data.qfrc_applied,
-            )
+        if self.passive_debug_locked:
+            self.simulator.passive_joint_controller.enforce_debug_lock(self.data)
+            return
+        self.simulator.passive_follower_controller.apply()
 
     def measure_real_angles(self):
         if self.body_base_id == -1 or self.body_mid_id == -1 or self.body_tip_id == -1:
@@ -207,9 +728,62 @@ class MujocoPhysicsControlPanel:
         self.segments[1]["real_angle"] = np.degrees(mujoco_quat_diff_angle(q_mid, q_tip))
 
     def draw_ui(self, cam_img=None):
-        h, w = 780, 800
+        show_window = self.input_mode == "ui"
+        if not show_window and not self.simulator.viewer_recording_enabled:
+            return
+        if show_window:
+            self._open_ui_window()
+        h, w = 840, 800
         img = np.zeros((h, w, 3), dtype=np.uint8)
         img[:] = (18, 18, 20)
+
+        x1, y1, x2, y2 = self.passive_debug_button_rect
+        button_color = (
+            (43, 152, 91) if self.passive_debug_locked else (55, 58, 64)
+        )
+        border_color = (
+            (91, 222, 145) if self.passive_debug_locked else (105, 108, 116)
+        )
+        cv2.rectangle(img, (x1, y1), (x2, y2), button_color, -1)
+        cv2.rectangle(img, (x1, y1), (x2, y2), border_color, 2)
+        cv2.putText(
+            img, "PASSIVE DEBUG LOCK", (x1 + 13, y1 + 26),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.51, (245, 247, 249), 1,
+        )
+        status = "ON  |  JOINTS RIGID" if self.passive_debug_locked else "OFF | FOLLOW MODE"
+        cv2.putText(
+            img, status, (x1 + 13, y1 + 53),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.46,
+            (225, 255, 235) if self.passive_debug_locked else (205, 208, 214), 1,
+        )
+
+        x1, y1, x2, y2 = self.lung_toggle_button_rect
+        lung_color = (43, 152, 91) if self.lung_model_enabled else (55, 58, 64)
+        lung_border = (91, 222, 145) if self.lung_model_enabled else (105, 108, 116)
+        cv2.rectangle(img, (x1, y1), (x2, y2), lung_color, -1)
+        cv2.rectangle(img, (x1, y1), (x2, y2), lung_border, 2)
+        cv2.putText(
+            img, "LUNG MODEL", (x1 + 12, y1 + 24),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.52, (245, 247, 249), 1,
+        )
+        lung_status = "ON  |  VISIBLE" if self.lung_model_enabled else "OFF | HIDDEN"
+        cv2.putText(
+            img, lung_status, (x1 + 12, y1 + 47),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.44,
+            (225, 255, 235) if self.lung_model_enabled else (205, 208, 214), 1,
+        )
+
+        x1, y1, x2, y2 = self.robot_pose_button_rect
+        cv2.rectangle(img, (x1, y1), (x2, y2), (112, 75, 30), -1)
+        cv2.rectangle(img, (x1, y1), (x2, y2), (218, 151, 73), 2)
+        cv2.putText(
+            img, "ROBOT INITIAL POSE", (x1 + 10, y1 + 21),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (248, 248, 250), 1,
+        )
+        cv2.putText(
+            img, "OPEN POSITION EDITOR", (x1 + 10, y1 + 40),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.37, (224, 235, 248), 1,
+        )
 
         if cam_img is not None:
             disp_w, disp_h = 240, 240
@@ -220,49 +794,60 @@ class MujocoPhysicsControlPanel:
             cv2.putText(img, "Tip Camera / Virtual Real Camera", (sx, sy - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 230, 235), 1)
 
-        button_color = (40, 120, 255) if self.calibration_capture else (70, 70, 78)
-        cv2.rectangle(img, (590, 300), (760, 342), button_color, -1)
-        cv2.putText(img, "CALIBRATE ON" if self.calibration_capture else "CALIBRATE",
-                    (606, 327), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (255, 255, 255), 2)
-
-        em = self.simulator.clicked_em_pos
-        cv2.putText(img, f"EM point: [{em[0]:.1f}, {em[1]:.1f}, {em[2]:.1f}] mm",
-                    (40, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (140, 220, 255), 1)
-        cv2.putText(img, "Click CALIBRATE, then pick the lung model in the 3D workspace.",
-                    (40, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (180, 180, 188), 1)
-
         for i, center in enumerate([self.c1_center, self.c2_center]):
             cv2.circle(img, center, MUJOCO_COMPASS_RADIUS, (42, 42, 48), -1)
             cv2.circle(img, center, MUJOCO_COMPASS_RADIUS, (120, 120, 130), 2)
-            if i == 1:
-                cv2.circle(img, center, int(MUJOCO_COMPASS_RADIUS * 0.7), (82, 82, 92), 1)
             cv2.putText(img, self.segments[i]["name"], (center[0] - 75, center[1] - MUJOCO_COMPASS_RADIUS - 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.65, (245, 245, 248), 2)
-            cv2.putText(img, f"Torque: {self.segments[i]['torque_mag']:.2f} Nm",
+            wire_colour = (220, 40, 230) if i == 0 else (30, 130, 245)
+            for wire, wire_angle in zip(
+                self.segments[i]["wires"], self.segments[i]["wire_angles"]
+            ):
+                angle_rad = math.radians(wire_angle)
+                marker = (
+                    int(center[0] + math.cos(angle_rad) * (MUJOCO_COMPASS_RADIUS - 12)),
+                    int(center[1] - math.sin(angle_rad) * (MUJOCO_COMPASS_RADIUS - 12)),
+                )
+                cv2.circle(img, marker, 7, wire_colour, -1)
+                cv2.putText(img, f"W{wire}", (marker[0] - 11, marker[1] - 11),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (245, 245, 248), 1)
+            cv2.putText(
+                img,
+                f"Cmd: {self.segments[i]['bend_cmd_deg']:.1f} deg @ {self.segments[i]['direction_deg']:.0f} deg",
                         (center[0] - 92, center[1] + MUJOCO_COMPASS_RADIUS + 38),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.58, (220, 220, 225), 1)
-            cv2.putText(img, f"Real Ang: {self.segments[i]['real_angle']:.1f} deg",
-                        (center[0] - 92, center[1] + MUJOCO_COMPASS_RADIUS + 68),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 128), 2)
+            cv2.putText(
+                img,
+                f"Motor: {self.segments[i]['motor_bend_deg']:.1f} deg @ {self.segments[i]['motor_direction_deg']:.0f} deg",
+                        (center[0] - 92, center[1] + MUJOCO_COMPASS_RADIUS + 62),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, wire_colour, 1)
+            pulls = self.segments[i]["pull_mm"]
+            cv2.putText(
+                img,
+                f"Pull mm: {pulls[0]:+.2f}/{pulls[1]:+.2f}/{pulls[2]:+.2f}",
+                        (center[0] - 92, center[1] + MUJOCO_COMPASS_RADIUS + 86),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, wire_colour, 1)
+            cv2.putText(img, f"Real: {self.segments[i]['real_angle']:.1f} deg",
+                        (center[0] - 92, center[1] + MUJOCO_COMPASS_RADIUS + 110),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 255, 128), 2)
             ctrl_vec = self.segments[i]["ctrl_vec"]
             px = int(center[0] + ctrl_vec[0] * MUJOCO_COMPASS_RADIUS)
             py = int(center[1] - ctrl_vec[1] * MUJOCO_COMPASS_RADIUS)
             cv2.line(img, center, (px, py), (0, 255, 255), 2)
             cv2.circle(img, (px, py), 12, (0, 120, 255), -1)
 
-        bar_y = 720
+        bar_y = 790
         cv2.line(img, (50, bar_y), (750, bar_y), (90, 90, 96), 6)
         sx = int(50 + self.slider_val * 700)
         cv2.circle(img, (sx, bar_y), 15, (0, 210, 110), -1)
         cv2.putText(img, f"Insertion Depth: {self.slider_val * 100:.0f}%",
                     (315, bar_y + 36), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230, 230, 235), 1)
-        cv2.imshow(self.win_name, img)
+        self.latest_frame_bgr = img.copy()
+        if show_window:
+            cv2.imshow(self.win_name, img)
 
     def close(self):
-        try:
-            cv2.destroyWindow(self.win_name)
-        except Exception:
-            pass
+        self._close_ui_window()
 
 
 class MujocoDualScopeSimulator:
@@ -284,26 +869,42 @@ class MujocoDualScopeSimulator:
         self.step_count = 0
         self.viewer = None
         self.physics_panel = None
+        self.robot_pose_window = None
+        self.viewer_record_renderer = None
+        self.viewer_record_size = None
+        self.viewer_recording_enabled = False
+        self.latest_viewer_frame_bgr = None
+        self._viewer_recording_error = None
         # Match the square PyVista virtual viewport so both cameras have the
         # same horizontal and vertical field of view.
         self.renderer = mujoco.Renderer(self.model, height=480, width=480)
         self.tip_scene_option = mujoco.MjvOption()
         self.tip_scene_option.geomgroup[5] = 0
         self.tip_camera_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, MUJOCO_TIP_CAMERA)
+        if self.tip_camera_id != -1:
+            self.model.cam_fovy[self.tip_camera_id] = MUJOCO_WIDE_FOVY
         self.tip_camera_rect = (280, 35, 240, 240)
         self.latest_tip_frame_bgr = None
         self.clicked_em_pos = np.zeros(3, dtype=float)
         self.pick_callback = None
         self.navigation_path_world_m = np.empty((0, 3), dtype=float)
+        self.tdcr_real_points_base_m = np.empty((0, 3), dtype=float)
+        self.tdcr_real_points_valid = np.zeros(0, dtype=bool)
         self.model_pick_requested = False
         self.viewer_pick_enabled = False
         self._viewer_pick_prev_down = False
         self._viewer_hwnd = None
         self._pick_scene = mujoco.MjvScene(self.model, 1000)
+        self.contact_regularizer = ActiveTipContactRegularizer(self.model, self.data)
+        self.passive_joint_controller = PassiveJointParameterController(self.model)
+        self.passive_follower_controller = PassiveActiveFollowerController(
+            self.model, self.data
+        )
+        self.tendon_controller = TendonCompassController(self.model, self.data)
 
         try:
             self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
-            self.model.opt.timestep = min(float(self.model.opt.timestep), 0.001)
+            self.model.opt.timestep = min(float(self.model.opt.timestep), 0.0002)
             self.model.opt.impratio = max(float(self.model.opt.impratio), 100.0)
         except Exception:
             pass
@@ -311,11 +912,51 @@ class MujocoDualScopeSimulator:
         self.body_ref_id = self._body_id(["base_plate", "base_link"])
         self.body_scope1_id = self._body_id(["end_6", "slider"])
         self.body_scope2_id = self._body_id(["seg1_B_last", "seg2_body"])
+        self.keypoint_tip_site_id = mujoco.mj_name2id(
+            self.model,
+            mujoco.mjtObj.mjOBJ_SITE,
+            "tip_center",
+        )
+        self.keypoint_middle_body_id = self._body_id(
+            ["seg1_B_last", "seg2_body"]
+        )
+        self.keypoint_connection_site_id = mujoco.mj_name2id(
+            self.model,
+            mujoco.mjtObj.mjOBJ_SITE,
+            "base_frame",
+        )
+        self.robot_root_body_id = self._body_id(["base_link"])
+        self.robot_root_original_pos = self.model.body_pos[
+            self.robot_root_body_id
+        ].copy()
+        self.robot_root_original_quat = self.model.body_quat[
+            self.robot_root_body_id
+        ].copy()
+        self.robot_translation_mm = np.zeros(3, dtype=float)
+        self.robot_rotation_rpy_deg = np.zeros(3, dtype=float)
+        self.home_key_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_KEY, "home"
+        )
         self.lung_geom_id = self._find_lung_geom_id()
+        self.lung_flex_id = mujoco.mj_name2id(
+            self.model,
+            mujoco.mjtObj.mjOBJ_FLEX,
+            "bronchial_wall_nonconvex",
+        )
+        self.lung_model_enabled = True
+        self.lung_flex_collision_masks = None
+        if self.lung_geom_id >= 0:
+            self.model.geom_group[self.lung_geom_id] = MUJOCO_LUNG_DISPLAY_GROUP
+        if self.lung_flex_id >= 0:
+            self.lung_flex_collision_masks = (
+                int(self.model.flex_contype[self.lung_flex_id]),
+                int(self.model.flex_conaffinity[self.lung_flex_id]),
+            )
+        self._apply_lung_render_state()
         self.slider_act_id = self._actuator_id(["act_slid_M"])
         self.cable_act_ids = {
-            name: self._actuator_id([f"force_{name}"])
-            for name in ("s1", "s2", "s3", "s4", "s5", "s6")
+            f"wire_{wire}": self._actuator_id([f"act_t{wire}"])
+            for wire in range(1, 7)
         }
 
         mujoco.mj_forward(self.model, self.data)
@@ -329,7 +970,169 @@ class MujocoDualScopeSimulator:
         if mujoco_viewer is None:
             raise RuntimeError("mujoco.viewer is unavailable in this environment.")
         self.viewer = mujoco_viewer.launch_passive(self.model, self.data)
+        self._set_viewer_top_down_camera()
+        self._apply_lung_render_state()
         self.physics_panel = MujocoPhysicsControlPanel(self.model, self.data, self)
+
+    def _set_viewer_top_down_camera(self):
+        if self.viewer is None:
+            return
+        try:
+            mujoco.mj_forward(self.model, self.data)
+            positions = np.asarray(self.data.geom_xpos, dtype=float)
+            valid = np.isfinite(positions).all(axis=1)
+            positions = positions[valid]
+            center = np.mean(positions, axis=0) if len(positions) else np.zeros(3)
+            extent = np.ptp(positions, axis=0) if len(positions) else np.ones(3)
+            self.viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+            self.viewer.cam.lookat[:] = center
+            self.viewer.cam.azimuth = 270.0
+            self.viewer.cam.elevation = -89.0
+            self.viewer.cam.distance = max(0.8, float(np.max(extent)) * 1.35)
+        except Exception as e:
+            print(f"MuJoCo 俯视相机设置失败: {e}")
+
+    def set_control_mode(self, mode):
+        if self.physics_panel is None:
+            return False
+        self.physics_panel.set_input_mode(mode)
+        return True
+
+    def connect_gamepad(self):
+        if self.physics_panel is None:
+            return False
+        return self.physics_panel.connect_gamepad()
+
+    def set_auto_navigation_action(self, action):
+        if self.physics_panel is not None:
+            self.physics_panel.auto_action = action
+            if action is None:
+                for segment in self.physics_panel.segments:
+                    segment["ctrl_vec"][:] = 0.0
+                self.physics_panel.tendon_controller.reset()
+
+    def gamepad_is_connected(self):
+        return bool(self.physics_panel is not None and self.physics_panel.gamepad_connected)
+
+    def set_passive_joint_scales(self, stiffness_scale, damping_scale):
+        """Update passive compliance without touching active-tip parameters."""
+        return self.passive_joint_controller.set_scales(
+            stiffness_scale, damping_scale
+        )
+
+    def get_passive_joint_parameters(self):
+        return self.passive_joint_controller.current_parameters()
+
+    def get_robot_initial_pose(self):
+        return {
+            "translation_mm": self.robot_translation_mm.copy(),
+            "rotation_rpy_deg": self.robot_rotation_rpy_deg.copy(),
+            "world_position_mm": (
+                self.model.body_pos[self.robot_root_body_id] * 1000.0
+            ).copy(),
+        }
+
+    def set_robot_initial_pose(self, translation_mm, rotation_rpy_deg):
+        """Rigidly reposition the complete robot assembly and return Home."""
+        translation = np.asarray(translation_mm, dtype=float).reshape(3)
+        rotation = np.asarray(rotation_rpy_deg, dtype=float).reshape(3)
+        if not np.isfinite(translation).all() or not np.isfinite(rotation).all():
+            raise ValueError("机器人整体位姿必须是有限数值。")
+
+        baseline_quat_xyzw = self.robot_root_original_quat[[1, 2, 3, 0]]
+        baseline_rotation = R.from_quat(baseline_quat_xyzw).as_matrix()
+        offset_rotation = R.from_euler(
+            "xyz", rotation, degrees=True
+        ).as_matrix()
+        world_rotation = offset_rotation @ baseline_rotation
+        world_quat_xyzw = R.from_matrix(world_rotation).as_quat()
+
+        self.model.body_pos[self.robot_root_body_id] = (
+            self.robot_root_original_pos + translation / 1000.0
+        )
+        self.model.body_quat[self.robot_root_body_id] = world_quat_xyzw[
+            [3, 0, 1, 2]
+        ]
+        self.robot_translation_mm = translation.copy()
+        self.robot_rotation_rpy_deg = rotation.copy()
+
+        mujoco.mj_setConst(self.model, self.data)
+        if self.home_key_id >= 0:
+            mujoco.mj_resetDataKeyframe(
+                self.model, self.data, self.home_key_id
+            )
+        else:
+            mujoco.mj_resetData(self.model, self.data)
+        self.contact_regularizer.reset()
+        self.passive_follower_controller.reset()
+        self.tendon_controller.reset()
+
+        if self.physics_panel is not None:
+            panel = self.physics_panel
+            panel.auto_action = None
+            panel.slider_val = 0.0
+            panel.slider_command = 0.0
+            panel.previous_auto_insertion_delta = 0.0
+            panel.last_auto_slider_position_m = None
+            panel.auto_insertion_stall_frames = 0
+            panel.distal_feedback_correction[:] = 0.0
+            for segment in panel.segments:
+                segment["ctrl_vec"][:] = 0.0
+                segment["motor_vec"][:] = 0.0
+            if panel.passive_debug_locked:
+                self.passive_joint_controller.enforce_debug_lock(self.data)
+
+        mujoco.mj_forward(self.model, self.data)
+        if self.viewer is not None:
+            self._set_viewer_top_down_camera()
+        return self.get_robot_initial_pose()
+
+    def reset_robot_initial_pose(self):
+        return self.set_robot_initial_pose(np.zeros(3), np.zeros(3))
+
+    def show_robot_pose_control(self):
+        if QtWidgets.QApplication.instance() is None:
+            raise RuntimeError("机器人整体位姿界面需要 Qt 应用环境。")
+        if self.robot_pose_window is None:
+            self.robot_pose_window = RobotInitialPoseWindow(self)
+        else:
+            self.robot_pose_window.sync_from_simulator()
+        self.robot_pose_window.show()
+        self.robot_pose_window.raise_()
+        self.robot_pose_window.activateWindow()
+        return True
+
+    def _apply_lung_render_state(self):
+        visible = int(self.lung_model_enabled)
+        self.tip_scene_option.geomgroup[MUJOCO_LUNG_DISPLAY_GROUP] = visible
+        # The green non-convex flex is collision-only. Keep it hidden even
+        # while its contact masks are enabled; only the red visual mesh is shown.
+        self.tip_scene_option.flexgroup[MUJOCO_LUNG_DISPLAY_GROUP] = 0
+        if self.viewer is not None:
+            self.viewer.opt.geomgroup[MUJOCO_LUNG_DISPLAY_GROUP] = visible
+            self.viewer.opt.flexgroup[MUJOCO_LUNG_DISPLAY_GROUP] = 0
+
+    def set_lung_model_enabled(self, enabled):
+        """Show/hide the lung and enable/disable its physical collision."""
+        self.lung_model_enabled = bool(enabled)
+        if self.lung_flex_id >= 0 and self.lung_flex_collision_masks is not None:
+            contype, conaffinity = self.lung_flex_collision_masks
+            self.model.flex_contype[self.lung_flex_id] = (
+                contype if self.lung_model_enabled else 0
+            )
+            self.model.flex_conaffinity[self.lung_flex_id] = (
+                conaffinity if self.lung_model_enabled else 0
+            )
+        if not self.lung_model_enabled:
+            self.contact_regularizer.reset()
+        self._apply_lung_render_state()
+        mujoco.mj_forward(self.model, self.data)
+        return {
+            "enabled": self.lung_model_enabled,
+            "collision_enabled": bool(
+                self.lung_model_enabled and self.lung_flex_id >= 0
+            ),
+        }
 
     def _body_id(self, names):
         for name in names:
@@ -389,6 +1192,17 @@ class MujocoDualScopeSimulator:
             points = points[indices]
         self.navigation_path_model_mm = points.copy()
         self.navigation_path_world_m = self.model_points_to_world_m(points)
+        self.navigation_target_world_m = None
+        self._refresh_viewer_overlays()
+
+    def set_navigation_waypoint_state(self, remaining_model_mm, target_model_mm=None):
+        points = np.asarray(remaining_model_mm, dtype=float).reshape(-1, 3)
+        self.navigation_path_model_mm = points.copy()
+        self.navigation_path_world_m = self.model_points_to_world_m(points) if len(points) else np.empty((0, 3))
+        self.navigation_target_world_m = (
+            self.model_points_to_world_m(np.asarray(target_model_mm, dtype=float).reshape(1, 3))[0]
+            if target_model_mm is not None else None
+        )
         self._refresh_viewer_overlays()
 
     def _refresh_navigation_path_world(self):
@@ -396,11 +1210,47 @@ class MujocoDualScopeSimulator:
             self.navigation_path_world_m = self.model_points_to_world_m(self.navigation_path_model_mm)
             self._refresh_viewer_overlays()
 
+    def set_tdcr_measurement_overlay(self, points_base_m, valid):
+        """Display measured D435 points without changing MuJoCo physics."""
+        self.tdcr_real_points_base_m = np.asarray(points_base_m, dtype=float).reshape(-1, 3).copy()
+        self.tdcr_real_points_valid = np.asarray(valid, dtype=bool).reshape(-1).copy()
+        self._refresh_viewer_overlays()
+
     def _body_matrix(self, body_id):
         mat = np.eye(4, dtype=float)
         mat[:3, :3] = self.data.xmat[body_id].reshape(3, 3)
         mat[:3, 3] = self.data.xpos[body_id] * self.scale_to_mm
         return mat
+
+    def _site_matrix(self, site_id):
+        mat = np.eye(4, dtype=float)
+        mat[:3, :3] = self.data.site_xmat[site_id].reshape(3, 3)
+        mat[:3, 3] = self.data.site_xpos[site_id] * self.scale_to_mm
+        return mat
+
+    @staticmethod
+    def _matrix_to_pose(matrix):
+        matrix = np.asarray(matrix, dtype=float).reshape(4, 4)
+        return {
+            "position_mm": matrix[:3, 3].copy(),
+            "quaternion_xyzw": R.from_matrix(matrix[:3, :3]).as_quat(),
+        }
+
+    def get_keypoint_poses(self):
+        poses = {}
+        if self.keypoint_tip_site_id >= 0:
+            poses["tip"] = self._matrix_to_pose(
+                self._site_matrix(self.keypoint_tip_site_id)
+            )
+        if self.keypoint_middle_body_id >= 0:
+            poses["middle_platform"] = self._matrix_to_pose(
+                self._body_matrix(self.keypoint_middle_body_id)
+            )
+        if self.keypoint_connection_site_id >= 0:
+            poses["master_slave_connection"] = self._matrix_to_pose(
+                self._site_matrix(self.keypoint_connection_site_id)
+            )
+        return poses
 
     def _camera_matrix(self):
         mat = np.eye(4, dtype=float)
@@ -435,6 +1285,70 @@ class MujocoDualScopeSimulator:
         rgb = self.renderer.render()
         self.latest_tip_frame_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         return self.latest_tip_frame_bgr
+
+    def set_screen_recording_enabled(self, enabled):
+        self.viewer_recording_enabled = bool(enabled)
+        self.latest_viewer_frame_bgr = None
+        self._viewer_recording_error = None
+        self.viewer_record_size = None
+        if not self.viewer_recording_enabled and self.viewer_record_renderer is not None:
+            try:
+                self.viewer_record_renderer.close()
+            except Exception:
+                pass
+            self.viewer_record_renderer = None
+
+    def render_viewer_camera(self):
+        if (
+            not self.viewer_recording_enabled
+            or self.viewer is None
+            or not self.viewer.is_running()
+        ):
+            return None
+        try:
+            with self.viewer.lock():
+                camera = copy.copy(self.viewer.cam)
+                scene_option = copy.copy(self.viewer.opt)
+                viewport = self.viewer.viewport
+                viewport_width = int(getattr(viewport, "width", 0))
+                viewport_height = int(getattr(viewport, "height", 0))
+            if self.viewer_record_renderer is None:
+                if viewport_width < 2 or viewport_height < 2:
+                    return None
+                record_width = viewport_width - (viewport_width % 2)
+                record_height = viewport_height - (viewport_height % 2)
+                self.model.vis.global_.offwidth = max(
+                    int(self.model.vis.global_.offwidth),
+                    record_width,
+                )
+                self.model.vis.global_.offheight = max(
+                    int(self.model.vis.global_.offheight),
+                    record_height,
+                )
+                self.viewer_record_renderer = mujoco.Renderer(
+                    self.model,
+                    height=record_height,
+                    width=record_width,
+                )
+                self.viewer_record_size = (record_width, record_height)
+            self.viewer_record_renderer.update_scene(
+                self.data,
+                camera=camera,
+                scene_option=scene_option,
+            )
+            rgb = self.viewer_record_renderer.render()
+            self.latest_viewer_frame_bgr = cv2.cvtColor(
+                rgb,
+                cv2.COLOR_RGB2BGR,
+            )
+            self._viewer_recording_error = None
+            return self.latest_viewer_frame_bgr
+        except Exception as exc:
+            error_text = str(exc)
+            if error_text != self._viewer_recording_error:
+                print(f"MuJoCo viewer recording frame failed: {error_text}")
+                self._viewer_recording_error = error_text
+            return None
 
     def set_clicked_em_position_mm(self, point_mm, notify=True):
         self.clicked_em_pos = np.asarray(point_mm, dtype=float).reshape(3)
@@ -581,19 +1495,7 @@ class MujocoDualScopeSimulator:
             return
         scn = self.viewer.user_scn
         scn.ngeom = 0
-        pos_m = np.asarray(self.clicked_em_pos, dtype=float) / self.scale_to_mm
-        size = np.array([0.006, 0.006, 0.006], dtype=np.float64)
         mat = np.eye(3, dtype=np.float64).reshape(-1)
-        rgba = np.array([0.0, 0.78, 0.75, 1.0], dtype=np.float32)
-        mujoco.mjv_initGeom(
-            scn.geoms[scn.ngeom],
-            mujoco.mjtGeom.mjGEOM_SPHERE,
-            size,
-            pos_m,
-            mat,
-            rgba,
-        )
-        scn.ngeom += 1
 
         path_rgba = np.array([0.0, 0.48, 1.0, 1.0], dtype=np.float32)
         path_size = np.array([0.0018, 0.0018, 0.0018], dtype=np.float64)
@@ -610,22 +1512,88 @@ class MujocoDualScopeSimulator:
             )
             scn.ngeom += 1
 
+        target = getattr(self, "navigation_target_world_m", None)
+        if target is not None and scn.ngeom < scn.maxgeom:
+            target_size = np.array([0.005, 0.005, 0.005], dtype=np.float64)
+            target_rgba = np.array([1.0, 0.78, 0.0, 1.0], dtype=np.float32)
+            mujoco.mjv_initGeom(
+                scn.geoms[scn.ngeom],
+                mujoco.mjtGeom.mjGEOM_SPHERE,
+                target_size,
+                np.asarray(target, dtype=np.float64),
+                mat,
+                target_rgba,
+            )
+            scn.ngeom += 1
+
+        real_local = getattr(self, "tdcr_real_points_base_m", np.empty((0, 3)))
+        real_valid = getattr(self, "tdcr_real_points_valid", np.zeros(0, dtype=bool))
+        if len(real_local) and self.body_base_id >= 0:
+            # base_frame is fixed to active_tdcr_base; use its site pose so
+            # measured local coordinates follow insertion/passive motion only
+            # for visualization. No qpos/qvel values are modified.
+            base_site_id = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_SITE, "base_frame"
+            )
+            site_ids = [
+                mujoco.mj_name2id(
+                    self.model, mujoco.mjtObj.mjOBJ_SITE, f"measurement_kp_{i}"
+                )
+                for i in range(min(7, len(real_local)))
+            ]
+            if base_site_id >= 0 and all(site_id >= 0 for site_id in site_ids):
+                base_rotation = self.data.site_xmat[base_site_id].reshape(3, 3)
+                base_position = self.data.site_xpos[base_site_id]
+                real_world = (base_rotation @ real_local.T).T + base_position
+                real_rgba = np.array([1.0, 0.82, 0.0, 1.0], dtype=np.float32)
+                error_rgba = np.array([1.0, 0.25, 0.1, 0.9], dtype=np.float32)
+                point_size = np.array([0.0010, 0.0010, 0.0010], dtype=np.float64)
+                for index, (point, is_valid) in enumerate(zip(real_world, real_valid)):
+                    if not is_valid or not np.isfinite(point).all() or scn.ngeom >= scn.maxgeom:
+                        continue
+                    mujoco.mjv_initGeom(
+                        scn.geoms[scn.ngeom], mujoco.mjtGeom.mjGEOM_SPHERE,
+                        point_size, np.asarray(point, dtype=np.float64), mat, real_rgba,
+                    )
+                    scn.ngeom += 1
+                    if index >= len(site_ids) or scn.ngeom >= scn.maxgeom:
+                        continue
+                    simulation_point = np.asarray(
+                        self.data.site_xpos[site_ids[index]], dtype=np.float64
+                    )
+                    mujoco.mjv_initGeom(
+                        scn.geoms[scn.ngeom], mujoco.mjtGeom.mjGEOM_LINE,
+                        np.ones(3, dtype=np.float64), np.zeros(3, dtype=np.float64),
+                        mat, error_rgba,
+                    )
+                    mujoco.mjv_connector(
+                        scn.geoms[scn.ngeom], mujoco.mjtGeom.mjGEOM_LINE, 2,
+                        np.asarray(point, dtype=np.float64), simulation_point,
+                    )
+                    scn.ngeom += 1
+
     def step(self, steps=8):
         if self.physics_panel is not None:
             self.physics_panel.update_control()
             for _ in range(MUJOCO_STEPS_PER_FRAME):
                 self.data.qfrc_applied[:] = 0
+                self.contact_regularizer.before_step()
                 self.physics_panel.apply_physics()
+                self.passive_joint_controller.enforce_base_guide(self.data)
                 mujoco.mj_step(self.model, self.data)
+                self.passive_joint_controller.enforce_base_guide(self.data)
                 self.step_count += 1
+            mujoco.mj_forward(self.model, self.data)
             self.physics_panel.measure_real_angles()
             self._refresh_navigation_path_world()
             cam_img = self.render_tip_camera()
             if self.viewer is not None and self.viewer.is_running():
                 self._poll_mujoco_viewer_pick()
                 self.viewer.sync()
+            self.render_viewer_camera()
             self.physics_panel.draw_ui(cam_img)
-            cv2.waitKey(1)
+            if self.physics_panel.input_mode == "ui":
+                cv2.waitKey(1)
             return
 
         t = time.time() - self.t0
@@ -634,30 +1602,24 @@ class MujocoDualScopeSimulator:
             self.data.ctrl[self.slider_act_id] = 0.25 + 0.08 * math.sin(t * 0.45)
 
         # Gentle deterministic motion keeps the virtual sensors alive without real hardware.
-        seg1_y = 10.0 * math.sin(t * 0.65)
-        seg1_z = 10.0 * math.cos(t * 0.52)
-        seg2_y = 6.0 * math.sin(t * 0.83 + 0.7)
-        seg2_z = 6.0 * math.cos(t * 0.71 + 0.4)
-        control = {
-            "s1": seg1_y,
-            "s3": -0.5 * seg1_y + 0.866 * seg1_z,
-            "s5": -0.5 * seg1_y - 0.866 * seg1_z,
-            "s2": seg2_y,
-            "s4": -0.5 * seg2_y + 0.866 * seg2_z,
-            "s6": -0.5 * seg2_y - 0.866 * seg2_z,
-        }
-        for name, value in control.items():
-            aid = self.cable_act_ids.get(name, -1)
-            if aid != -1:
-                self.data.ctrl[aid] = float(np.clip(value, -100.0, 100.0))
+        self.tendon_controller.set_segment_vector(
+            0,
+            [0.25 * math.sin(t * 0.65), 0.25 * math.cos(t * 0.52)],
+        )
+        self.tendon_controller.set_segment_vector(
+            1,
+            [0.18 * math.sin(t * 0.83 + 0.7), 0.18 * math.cos(t * 0.71 + 0.4)],
+        )
 
         for _ in range(max(1, int(steps))):
+            self.contact_regularizer.before_step()
             mujoco.mj_step(self.model, self.data)
             self.step_count += 1
         self._refresh_navigation_path_world()
         if self.viewer is not None and self.viewer.is_running():
             self._poll_mujoco_viewer_pick()
             self.viewer.sync()
+        self.render_viewer_camera()
         self.render_tip_camera()
 
     def get_tools_dict(self):
@@ -671,8 +1633,8 @@ class MujocoDualScopeSimulator:
 
     def get_axis_values(self):
         values = [0.0] * 7
-        actuator_values = [self.data.ctrl[aid] if aid != -1 else 0.0 for aid in self.cable_act_ids.values()]
-        for i, value in enumerate(actuator_values[:6]):
+        tendon_values = self.tendon_controller.commanded_pull_mm()
+        for i, value in enumerate(tendon_values[:6]):
             values[i] = float(value)
         if self.slider_act_id != -1:
             values[6] = float(self.data.ctrl[self.slider_act_id] * self.scale_to_mm)
@@ -681,6 +1643,12 @@ class MujocoDualScopeSimulator:
         return values
 
     def close(self):
+        if self.robot_pose_window is not None:
+            try:
+                self.robot_pose_window.close()
+            except Exception:
+                pass
+            self.robot_pose_window = None
         if self.physics_panel is not None:
             try:
                 self.physics_panel.close()
@@ -692,6 +1660,13 @@ class MujocoDualScopeSimulator:
                 self.renderer.close()
             except Exception:
                 pass
+        if self.viewer_record_renderer is not None:
+            try:
+                self.viewer_record_renderer.close()
+            except Exception:
+                pass
+            self.viewer_record_renderer = None
+            self.viewer_record_size = None
         if self.viewer is not None:
             try:
                 self.viewer.close()
@@ -743,6 +1718,182 @@ class DebugImageWindow(QtWidgets.QWidget):
             img_depth = QImage(depth_color.data, w, h, ch * w, QImage.Format_BGR888)
             self.label_depth.setPixmap(QPixmap.fromImage(img_depth).scaled(
                 self.label_depth.size(), Qt.KeepAspectRatio))
+
+
+class NavigationTargetWindow(QtWidgets.QWidget):
+    """Independent tip-camera waypoint observation window."""
+
+    def __init__(self):
+        super().__init__(None, Qt.Window)
+        self.setWindowTitle("自动导航目标观察")
+        self.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.resize(720, 780)
+        self.setMinimumSize(520, 600)
+        self.setStyleSheet("""
+            QWidget { background: #f5f5f7; color: #1d1d1f; }
+            QLabel#targetTitle { font-size: 20px; font-weight: 650; padding: 8px; }
+            QLabel#targetImage { background: #101114; border-radius: 14px; }
+            QLabel#pathOverview { background: #101114; border-radius: 12px; }
+            QLabel#targetStatus {
+                background: white; border: 1px solid #d8d8dc; border-radius: 12px;
+                padding: 12px; font-size: 14px;
+            }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+        title = QLabel("当前路径点视觉引导")
+        title.setObjectName("targetTitle")
+        title.setAlignment(Qt.AlignCenter)
+        self.image_label = QLabel("等待摄像头画面")
+        self.image_label.setObjectName("targetImage")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMinimumSize(480, 480)
+        self.overview_label = QLabel("全部路径点概览")
+        self.overview_label.setObjectName("pathOverview")
+        self.overview_label.setAlignment(Qt.AlignCenter)
+        self.overview_label.setMinimumHeight(150)
+        self.overview_label.setMaximumHeight(190)
+        self.status_label = QLabel("当前路径点: N/A")
+        self.status_label.setObjectName("targetStatus")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(self.image_label, 1)
+        layout.addWidget(self.overview_label)
+        layout.addWidget(self.status_label)
+
+    def closeEvent(self, event):
+        self.hide()
+        event.ignore()
+
+    def update_guidance(self, frame_bgr, action):
+        if frame_bgr is None or action is None:
+            return
+        try:
+            frame = np.asarray(frame_bgr).copy()
+            height, width = frame.shape[:2]
+            center = (width // 2, height // 2)
+            cv2.drawMarker(frame, center, (0, 255, 0), cv2.MARKER_CROSS, 28, 2)
+            fov_y = math.radians(MUJOCO_WIDE_FOVY)
+            focal = height / (2.0 * math.tan(fov_y / 2.0))
+
+            # Draw every planned waypoint that currently projects into the tip
+            # camera. The active target is orange; all other points are blue.
+            all_local = np.asarray(action.get("all_path_local_mm", []), dtype=float)
+            target_index = int(action.get("target_index", 0))
+            projected_points = []
+            if all_local.ndim == 2 and all_local.shape[1:] == (3,):
+                for point_index, point_local in enumerate(all_local):
+                    if point_local[2] <= 1e-6:
+                        projected_points.append(None)
+                        continue
+                    point_u = int(round(center[0] + focal * point_local[0] / point_local[2]))
+                    point_v = int(round(center[1] - focal * point_local[1] / point_local[2]))
+                    if 0 <= point_u < width and 0 <= point_v < height:
+                        projected_points.append((point_u, point_v))
+                    else:
+                        projected_points.append(None)
+
+                for point_index in range(len(projected_points) - 1):
+                    first = projected_points[point_index]
+                    second = projected_points[point_index + 1]
+                    if first is not None and second is not None:
+                        color = (210, 130, 40) if point_index < target_index else (255, 170, 40)
+                        cv2.line(frame, first, second, color, 1, cv2.LINE_AA)
+
+                for point_index, projected in enumerate(projected_points):
+                    if projected is None:
+                        continue
+                    if point_index == target_index:
+                        cv2.circle(frame, projected, 10, (0, 170, 255), 3, cv2.LINE_AA)
+                        cv2.circle(frame, projected, 3, (0, 170, 255), -1, cv2.LINE_AA)
+                    else:
+                        color = (150, 150, 150) if point_index < target_index else (255, 170, 40)
+                        radius = 2 if point_index < target_index else 4
+                        cv2.circle(frame, projected, radius, color, -1, cv2.LINE_AA)
+
+                # Complete path overview: PCA fits the entire 3D path into a
+                # compact 2D map, so points outside the camera FOV remain visible.
+                overview_height, overview_width = 170, 680
+                overview = np.full((overview_height, overview_width, 3), (20, 21, 24), dtype=np.uint8)
+                centered_path = all_local - np.mean(all_local, axis=0, keepdims=True)
+                try:
+                    _, _, basis = np.linalg.svd(centered_path, full_matrices=False)
+                    path_2d = centered_path @ basis[:2].T
+                except Exception:
+                    path_2d = centered_path[:, :2]
+                low = np.min(path_2d, axis=0)
+                high = np.max(path_2d, axis=0)
+                span = np.maximum(high - low, 1e-6)
+                margin = np.array([30.0, 24.0])
+                scale = float(np.min((np.array([overview_width, overview_height]) - margin * 2.0) / span))
+                overview_points = (path_2d - low) * scale + margin
+                overview_points[:, 1] = overview_height - overview_points[:, 1]
+                overview_points = np.rint(overview_points).astype(int)
+                for point_index in range(len(overview_points) - 1):
+                    cv2.line(overview, tuple(overview_points[point_index]),
+                             tuple(overview_points[point_index + 1]), (110, 105, 95), 2, cv2.LINE_AA)
+                for point_index, overview_point in enumerate(overview_points):
+                    if point_index == target_index:
+                        cv2.circle(overview, tuple(overview_point), 8, (0, 170, 255), -1, cv2.LINE_AA)
+                    else:
+                        color = (100, 100, 100) if point_index < target_index else (255, 170, 40)
+                        cv2.circle(overview, tuple(overview_point), 3, color, -1, cv2.LINE_AA)
+                overview_rgb = cv2.cvtColor(overview, cv2.COLOR_BGR2RGB)
+                overview_image = QImage(
+                    overview_rgb.data, overview_width, overview_height,
+                    overview_rgb.strides[0], QImage.Format_RGB888,
+                ).copy()
+                self.overview_label.setPixmap(QPixmap.fromImage(overview_image).scaled(
+                    self.overview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                ))
+
+            local = np.asarray(action.get("waypoint_local_mm", [0.0, 0.0, -1.0]), dtype=float)
+            visible = local.shape == (3,) and local[2] > 1e-6
+            target_in_front = visible
+            if target_in_front:
+                u = int(round(center[0] + focal * local[0] / local[2]))
+                v = int(round(center[1] - focal * local[1] / local[2]))
+                visible = 0 <= u < width and 0 <= v < height
+                if visible:
+                    cv2.line(frame, center, (u, v), (0, 190, 255), 2)
+                    cv2.circle(frame, (u, v), 12, (0, 190, 255), 3)
+                    cv2.circle(frame, (u, v), 3, (0, 190, 255), -1)
+                else:
+                    direction = np.asarray([u - center[0], v - center[1]], dtype=float)
+                    direction /= max(float(np.linalg.norm(direction)), 1e-9)
+                    edge_radius = 0.42 * min(width, height)
+                    edge = (
+                        int(round(center[0] + direction[0] * edge_radius)),
+                        int(round(center[1] + direction[1] * edge_radius)),
+                    )
+                    cv2.arrowedLine(frame, center, edge, (0, 165, 255), 3, tipLength=0.22)
+            else:
+                # A rear target is shown as a red turn-around cue instead of
+                # disappearing from the observation window.
+                cv2.circle(frame, center, 44, (0, 0, 255), 3)
+                cv2.putText(frame, "TARGET BEHIND", (center[0] - 92, center[1] - 58),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image = QImage(rgb.data, width, height, rgb.strides[0], QImage.Format_RGB888).copy()
+            self.image_label.setPixmap(QPixmap.fromImage(image).scaled(
+                self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            ))
+            self.status_label.setText(
+                f"路径点 {action.get('target_index', 0) + 1} | "
+                f"距离 {action.get('distance_to_target_mm', 0.0):.2f} mm | "
+                f"视图偏差 {action.get('visual_error_norm', 0.0):.3f} | "
+                f"速度 {action.get('estimated_speed_mm_per_frame', 0.0):.2f} mm/帧 | "
+                f"方位误差 {action.get('relative_bearing_error_deg', 0.0):.1f}°\n"
+                f"横向误差 {action.get('lateral_distance_mm', 0.0):.2f} mm | "
+                f"{action.get('servo_phase', '跟踪')} | "
+                f"{'画面内' if visible else ('画面外' if target_in_front else '目标在后方')}"
+            )
+        except Exception as e:
+            self.status_label.setText(f"导航观察窗口更新失败: {e}")
+
+
 class CentroidOverlay(QtWidgets.QWidget):
     def __init__(self, parent=None, color=QColor(255, 0, 0, 200)):
         super().__init__(parent)
@@ -1300,7 +2451,42 @@ class StartupEnvironmentDialog(QtWidgets.QDialog):
         super().accept()
 
 
-class MainWindow(QtWidgets.QMainWindow):
+_REAL_ENVIRONMENT_WINDOW_CLASS = None
+
+
+def load_real_environment_window_class():
+    """Load the physical-hardware workbench while leaving simulation untouched."""
+    global _REAL_ENVIRONMENT_WINDOW_CLASS
+    if _REAL_ENVIRONMENT_WINDOW_CLASS is not None:
+        return _REAL_ENVIRONMENT_WINDOW_CLASS
+    if not os.path.isfile(REAL_ENVIRONMENT_SCRIPT):
+        raise FileNotFoundError(f"真实环境界面文件不存在: {REAL_ENVIRONMENT_SCRIPT}")
+    module_name = "brnchus_robot_real_dual_probe_ui"
+    specification = importlib.util.spec_from_file_location(
+        module_name, REAL_ENVIRONMENT_SCRIPT
+    )
+    if specification is None or specification.loader is None:
+        raise ImportError(f"无法加载真实环境界面: {REAL_ENVIRONMENT_SCRIPT}")
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[module_name] = module
+    try:
+        specification.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
+    window_class = getattr(module, "MainWindow", None)
+    if window_class is None:
+        raise AttributeError("真实环境界面缺少 MainWindow 类")
+    _REAL_ENVIRONMENT_WINDOW_CLASS = window_class
+    return window_class
+
+
+class MainWindow(
+    DualCameraRecordingMixin,
+    SimulationAutomationMixin,
+    SimulationRuntimeMixin,
+    QtWidgets.QMainWindow,
+):
     def __init__(self, data_queue: Queue, initial_environment="real", initial_mujoco_xml=None):
         super().__init__()
         self._is_closing = False
@@ -1358,6 +2544,83 @@ class MainWindow(QtWidgets.QMainWindow):
         self.seg_thread = None
         self.seg_worker = None
         self.seg_running = False
+        self.latest_real_frame_bgr = None
+        self.latest_segmentation_mask = None
+        self.latest_tools_dict = None
+        self.auto_nav_enabled = False
+        self.auto_nav_state = "stopped"
+        self.auto_nav_action = None
+        self.auto_nav_tracking_path = None
+        self.auto_nav_global_profile = None
+        self.auto_nav_target_index = 0
+        self.auto_nav_nearest_index = 0
+        self.auto_nav_path_distance = 0.0
+        self.auto_nav_passed_count = 0
+        self.auto_nav_progress = 0.0
+        self.auto_nav_action_cache = deque(maxlen=2000)
+        self.auto_nav_filtered_steering = np.zeros(2, dtype=float)
+        self.auto_nav_proximal_command = np.zeros(2, dtype=float)
+        self.auto_nav_distal_command = np.zeros(2, dtype=float)
+        self.auto_nav_previous_heading_error = np.zeros(2, dtype=float)
+        self.auto_nav_pid_integral = np.zeros(2, dtype=float)
+        self.auto_nav_pid_derivative = np.zeros(2, dtype=float)
+        self.auto_nav_pid_output_filtered = np.zeros(2, dtype=float)
+        self.auto_nav_pid_last_time = None
+        self.auto_nav_steering_reversal_frames = 0
+        self.auto_nav_filtered_distal_assist = 0.0
+        self.auto_nav_elastic_release_active = False
+        self.auto_nav_elastic_release_frames = 0
+        self.auto_nav_curve_command = np.zeros(2, dtype=float)
+        self.auto_nav_curve_direction = np.zeros(2, dtype=float)
+        self.auto_nav_curve_release_frames = 0
+        self.auto_nav_curve_release_cooldown = 0
+        self.auto_nav_control_basis = None
+        self.auto_nav_last_curve_heading_error = None
+        self.auto_nav_curve_error_rise_frames = 0
+        self.auto_nav_filtered_position = None
+        self.auto_nav_filtered_forward = None
+        self.auto_nav_waypoint_reached_frames = 0
+        self.auto_nav_waypoint_controller_index = -1
+        self.auto_nav_elastic_bend_direction = np.zeros(2, dtype=float)
+        self.auto_nav_elastic_release_countdown = 0
+        self.auto_nav_elastic_settle_frames = 0
+        self.auto_nav_straight_mode = True
+        self.auto_nav_filtered_path_curve = 0.0
+        self.auto_nav_straight_correction_active = False
+        self.auto_nav_last_turn_direction = np.zeros(2, dtype=float)
+        self.auto_nav_committed_turn_direction = np.zeros(2, dtype=float)
+        self.auto_nav_turn_severity = 0.0
+        self.auto_nav_turn_active = False
+        self.auto_nav_control_frames = 0
+        self.auto_nav_servo_target_index = -1
+        self.auto_nav_target_transition_frames = 0
+        self.auto_nav_filtered_bearing = np.zeros(2, dtype=float)
+        self.auto_nav_last_bearing_angle_deg = None
+        self.auto_nav_bearing_improvement = 0.0
+        self.auto_nav_action_hold_countdown = 0
+        self.auto_nav_held_proximal_target = np.zeros(2, dtype=float)
+        self.auto_nav_held_distal_target = np.zeros(2, dtype=float)
+        self.auto_nav_curve_memory = 0.0
+        self.auto_nav_guidance_direction = None
+        self.auto_nav_straight_error_frames = 0
+        self.auto_nav_straight_clear_frames = 0
+        self.auto_nav_motion_mode = "forward"
+        self.auto_nav_behind_frames = 0
+        self.auto_nav_front_frames = 0
+        self.auto_nav_bend_gain_scale = 1.0
+        self.auto_nav_forward_reengage_frames = 0
+        self.auto_nav_filtered_speed = 0.0
+        self.auto_nav_last_insertion_step = 0.0
+        self.auto_nav_last_position = None
+        self.auto_nav_stall_frames = 0
+        self.auto_nav_v2 = AdaptiveRecedingHorizonNavigator()
+        self.navigation_target_window = None
+        self.vla_recording = False
+        self.vla_episode_dir = None
+        self.vla_sample_index = 0
+        self.vla_jsonl_file = None
+        self.vla_csv_file = None
+        self.vla_csv_writer = None
         self.setup_ui()
         self.virt_opening_actor = None
         self.virt_opening_poly = None
@@ -1370,10 +2633,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.is_recording_trajectory = False
         self.trajectory_data = []
         self.recording_start_time = 0.0
-        self.save_dir = os.path.join(os.getcwd(), "实际轨迹")
+        self.save_dir = os.path.join(PROJECT_ROOT, "实际轨迹")
         self.real_video_writer = None
         self.virt_video_writer = None
+        self.real_video_path = None
+        self.virt_video_path = None
+        self.real_video_fps = 20.0
+        self.virt_video_fps = 4.0
+        self.initialize_dual_camera_recording()
         self.current_axis_values = [0.0] * 7
+        # Keep controller demand and encoder measurement distinct. DPOS is a
+        # demand position; MPOS is the measured position when the drive/API
+        # exposes it. current_axis_values prefers MPOS and falls back to DPOS.
+        self.current_axis_demand_values = [float("nan")] * 7
+        self.current_axis_measured_values = [float("nan")] * 7
+        self.current_axis_measurement_valid = [False] * 7
+        self.d435_capture_window = None
 
         # 预先创建保存目录。
         if not os.path.exists(self.save_dir):
@@ -1385,13 +2660,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.initial_environment == "simulation":
             QtCore.QTimer.singleShot(250, self._start_initial_simulation)
 
-    def _start_initial_simulation(self):
-        if hasattr(self, "sim_model_combo"):
-            idx = self.sim_model_combo.findData(self.mujoco_xml_path)
-            if idx >= 0:
-                self.sim_model_combo.setCurrentIndex(idx)
-        if hasattr(self, "sim_toggle_btn") and not self.sim_toggle_btn.isChecked():
-            self.sim_toggle_btn.setChecked(True)
 
     def setup_ui(self):
         # 左侧显示 3D 模型，右侧放置标定、控制与仿真控件。
@@ -1593,7 +2861,7 @@ class MainWindow(QtWidgets.QMainWindow):
         env_title_box = QVBoxLayout()
         env_title = QLabel("运行环境")
         env_title.setObjectName("sectionTitle")
-        env_subtitle = QLabel("真实环境使用 NDI、MC 和相机数据流；MuJoCo 仿真环境会替换传感器数据并打开仿真窗口。")
+        env_subtitle = QLabel("选择真实环境或 MuJoCo 仿真数据源。")
         env_subtitle.setObjectName("heroSubtitle")
         env_subtitle.setWordWrap(True)
         env_title_box.addWidget(env_title)
@@ -1616,6 +2884,16 @@ class MainWindow(QtWidgets.QMainWindow):
         sim_select_layout.addWidget(self.sim_status_label)
         env_card_layout.addLayout(sim_select_layout, 3)
         tab2_layout.addWidget(env_card)
+
+        d435_card = QtWidgets.QGroupBox("D435 连续体三维关键点")
+        d435_layout = QHBoxLayout(d435_card)
+        self.d435_open_button = QPushButton("打开 D435 采集与MuJoCo对齐")
+        self.d435_open_button.clicked.connect(self.open_d435_capture_window)
+        d435_layout.addWidget(self.d435_open_button)
+        self.d435_status_label = QLabel("7点: 0/7/14/21/28/35/42 mm | 相机未启动")
+        self.d435_status_label.setWordWrap(True)
+        d435_layout.addWidget(self.d435_status_label, 1)
+        tab2_layout.addWidget(d435_card)
 
         self.debug_window = None
         self.virt_debug_window = None
@@ -1740,38 +3018,83 @@ class MainWindow(QtWidgets.QMainWindow):
         top_layout.setStretchFactor(virtual_view_container, 1)
         top_layout.setStretchFactor(actual_view_container, 1)
 
-        tab2_layout.addLayout(top_layout,4)
+        tab2_layout.addLayout(top_layout, 3)
 
-        # 说明已清理。
-        mc_layout = QHBoxLayout()
-        mc_layout.addWidget(QLabel("MC IP:"))
-        self.mc_ip_edit = QLineEdit()
-        self.mc_ip_edit.setText("192.168.0.250")
-        mc_layout.addWidget(self.mc_ip_edit)
+        control_card = QtWidgets.QFrame()
+        control_card.setObjectName("toolbarCard")
+        control_layout = QHBoxLayout(control_card)
+        control_layout.setContentsMargins(16, 10, 16, 10)
+        control_layout.setSpacing(12)
+        control_layout.addWidget(QLabel("仿真控制模式"))
 
-        self.mc_connect_btn = QPushButton("连接 MC")
-        self.mc_connect_btn.clicked.connect(self.on_mc_connect)
-        mc_layout.addWidget(self.mc_connect_btn)
+        self.sim_control_combo = QComboBox()
+        self.sim_control_combo.addItem("双罗盘 UI 控制", "ui")
+        self.sim_control_combo.addItem("手柄控制", "gamepad")
+        self.sim_control_combo.currentIndexChanged.connect(self.on_sim_control_mode_changed)
+        self.sim_control_combo.setEnabled(False)
+        control_layout.addWidget(self.sim_control_combo)
 
-        self.mc_disconnect_btn = QPushButton("断开 MC")
-        self.mc_disconnect_btn.setEnabled(False)
-        self.mc_disconnect_btn.clicked.connect(self.on_mc_disconnect)
-        mc_layout.addWidget(self.mc_disconnect_btn)
+        self.gamepad_connect_btn = QPushButton("检测并连接手柄")
+        self.gamepad_connect_btn.clicked.connect(self.connect_sim_gamepad)
+        self.gamepad_connect_btn.setEnabled(False)
+        self.gamepad_connect_btn.setVisible(False)
+        control_layout.addWidget(self.gamepad_connect_btn)
 
-        tab2_layout.addLayout(mc_layout)
+        self.sim_control_status = QLabel("启动 MuJoCo 后可选择控制方式")
+        self.sim_control_status.setObjectName("statusPill")
+        control_layout.addWidget(self.sim_control_status, 1)
+        tab2_layout.addWidget(control_card)
 
-        wdog_layout = QHBoxLayout()
-        wdog_layout.addWidget(QLabel("WDOG:"))
+        self.passive_joint_group = QtWidgets.QGroupBox("被动段柔顺性（仅 MuJoCo）")
+        passive_layout = QHBoxLayout(self.passive_joint_group)
+        passive_layout.setContentsMargins(14, 8, 14, 8)
+        passive_layout.setSpacing(10)
 
-        self.wdog_enable_btn = QPushButton("使能")
-        self.wdog_enable_btn.clicked.connect(self.on_wdog_enable)
-        wdog_layout.addWidget(self.wdog_enable_btn)
+        passive_layout.addWidget(QLabel("刚度倍率（小 = 易弯）"))
+        self.passive_stiffness_slider = QtWidgets.QSlider(Qt.Horizontal)
+        self.passive_stiffness_slider.setRange(10, 500)
+        self.passive_stiffness_slider.setValue(100)
+        self.passive_stiffness_slider.setSingleStep(5)
+        self.passive_stiffness_slider.setPageStep(25)
+        self.passive_stiffness_slider.setMinimumWidth(180)
+        self.passive_stiffness_slider.setToolTip(
+            "缩放 29 个 cable_stiffJ_* 球关节的等效弯曲刚度。"
+        )
+        passive_layout.addWidget(self.passive_stiffness_slider)
 
-        self.wdog_disable_btn = QPushButton("关闭使能")
-        self.wdog_disable_btn.clicked.connect(self.on_wdog_disable)
-        wdog_layout.addWidget(self.wdog_disable_btn)
+        self.passive_stiffness_value = QLabel("1.00×  (500 N·m/rad)")
+        self.passive_stiffness_value.setMinimumWidth(165)
+        passive_layout.addWidget(self.passive_stiffness_value)
 
-        tab2_layout.addLayout(wdog_layout)
+        passive_layout.addWidget(QLabel("阻尼倍率"))
+        self.passive_damping_spin = QtWidgets.QDoubleSpinBox()
+        self.passive_damping_spin.setRange(0.10, 5.00)
+        self.passive_damping_spin.setDecimals(2)
+        self.passive_damping_spin.setSingleStep(0.10)
+        self.passive_damping_spin.setValue(1.00)
+        self.passive_damping_spin.setSuffix(" ×")
+        self.passive_damping_spin.setToolTip(
+            "调小响应更灵活但更易振荡；调大可抑制被动段摆动。"
+        )
+        passive_layout.addWidget(self.passive_damping_spin)
+
+        self.passive_joint_reset_btn = QPushButton("恢复默认")
+        passive_layout.addWidget(self.passive_joint_reset_btn)
+        self.passive_joint_status = QLabel("启动 MuJoCo 后生效")
+        self.passive_joint_status.setObjectName("statusPill")
+        passive_layout.addWidget(self.passive_joint_status, 1)
+        self.passive_joint_group.setEnabled(False)
+
+        self.passive_stiffness_slider.valueChanged.connect(
+            self.on_passive_joint_parameters_changed
+        )
+        self.passive_damping_spin.valueChanged.connect(
+            self.on_passive_joint_parameters_changed
+        )
+        self.passive_joint_reset_btn.clicked.connect(
+            self.reset_passive_joint_parameters
+        )
+        tab2_layout.addWidget(self.passive_joint_group)
 
         axis_layout = QHBoxLayout()
         axis_layout.addWidget(QLabel("轴位置"))
@@ -1789,10 +3112,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.graph_widget.setTitle("Axis position realtime curves", color="k", size="12pt")
         self.graph_widget.setLabel('left', 'Position', color='k')
         self.graph_widget.setLabel('bottom', 'Time', color='k')
+        self.graph_widget.setMinimumHeight(240)
+        self.graph_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # 说明已清理。
         # 说明已清理。
-        self.legend = self.graph_widget.addLegend(offset=(10, 10))
+        self.legend = self.graph_widget.addLegend(offset=(10, 10), colCount=6)
 
         # 说明已清理。
         self.legend.layout.setVerticalSpacing(0)
@@ -1821,8 +3146,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 3. 灏嗙粯鍥炬帶浠舵坊鍔犲埌甯冨眬搴曢儴
         # 浣跨敤 setStretch 璁╁浘琛ㄥ崰鎹墿浣欑殑鎵€鏈夌┖鐧藉尯鍩?
-        tab2_layout.addWidget(self.graph_widget)
-        tab2_layout.setStretchFactor(self.graph_widget, 1)
+        tab2_layout.addWidget(self.graph_widget, 2)
+        tab2_layout.setStretchFactor(self.graph_widget, 2)
+
+        self._setup_automation_tab(tab_widget)
 
         # =======================================================
         # 说明已清理。
@@ -1832,67 +3159,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actual_view.setText("MuJoCo 仿真模式\n真实相机数据流已停用")
         elif len(self.cameras) > 0:
             self.on_camera_changed(0)
-
-    def _populate_mujoco_models(self):
-        self.sim_model_combo.clear()
-        candidate_paths = []
-        meshes_dir = os.path.join(PROJECT_ROOT, "meshes")
-        if os.path.isdir(meshes_dir):
-            for name in sorted(os.listdir(meshes_dir)):
-                if name.lower().endswith(".xml"):
-                    candidate_paths.append(os.path.join(meshes_dir, name))
-        if DEFAULT_MUJOCO_XML not in candidate_paths and os.path.exists(DEFAULT_MUJOCO_XML):
-            candidate_paths.insert(0, DEFAULT_MUJOCO_XML)
-
-        for path in candidate_paths:
-            self.sim_model_combo.addItem(os.path.basename(path), path)
-
-        default_index = self.sim_model_combo.findData(DEFAULT_MUJOCO_XML)
-        if default_index >= 0:
-            self.sim_model_combo.setCurrentIndex(default_index)
-
-    def toggle_mujoco_simulation(self, checked):
-        if checked:
-            xml_path = self.sim_model_combo.currentData() or self.mujoco_xml_path or DEFAULT_MUJOCO_XML
-            try:
-                self.mujoco_simulator = MujocoDualScopeSimulator(xml_path, open_viewer=True)
-                self.mujoco_xml_path = xml_path
-                self.is_simulation_mode = True
-                self._reset_simulation_calibration()
-                self.mujoco_simulator.pick_callback = self.on_mujoco_em_point_picked
-                self.sim_toggle_btn.setText("关闭 MuJoCo 仿真")
-                self.sim_status_label.setText(f"当前数据源: MuJoCo ({os.path.basename(xml_path)})")
-                self.ndi_connect_button.setEnabled(False)
-                self.comComboBox.setEnabled(False)
-                self.camera_combo.setEnabled(False)
-                self.actual_view.setText("MuJoCo 仿真模式\ntip_camera 数据流已启用")
-                self._enable_automatic_simulation_mapping()
-            except Exception as e:
-                self.is_simulation_mode = False
-                self.mujoco_simulator = None
-                self.sim_toggle_btn.blockSignals(True)
-                self.sim_toggle_btn.setChecked(False)
-                self.sim_toggle_btn.blockSignals(False)
-                self.sim_status_label.setText("当前数据源: 真实环境")
-                QMessageBox.critical(self, "MuJoCo 仿真启动失败", str(e))
-        else:
-            if self.mujoco_simulator is not None:
-                self.mujoco_simulator.pick_callback = None
-                try:
-                    self.mujoco_simulator.close()
-                except Exception:
-                    pass
-            self.mujoco_simulator = None
-            self.is_simulation_mode = False
-            self.sim_em_pick_active = False
-            self.calibration_ready = False
-            self.auto_simulation_mapping_ready = False
-            self.sim_toggle_btn.setText("启用 MuJoCo 仿真")
-            self.sim_status_label.setText("当前数据源: 真实环境")
-            self.ndi_connect_button.setEnabled(True)
-            self.comComboBox.setEnabled(True)
-            self.camera_combo.setEnabled(True)
-
     def on_mc_connect(self):
         ip = self.mc_ip_edit.text().strip()
         try:
@@ -1956,29 +3222,29 @@ class MainWindow(QtWidgets.QMainWindow):
             self.trajectory_data = []
             self.recording_start_time = datetime.now().timestamp()
             self.current_axis_values = [0.0] * 7
+            self.current_axis_demand_values = [float("nan")] * 7
+            self.current_axis_measured_values = [float("nan")] * 7
+            self.current_axis_measurement_valid = [False] * 7
 
             # 初始化视频记录。
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            recording_dir = self.prepare_recording_session(timestamp_str)
+            self.real_video_path = os.path.join(
+                recording_dir, f"RealMask_{timestamp_str}.avi"
+            )
+            self.virt_video_path = os.path.join(
+                recording_dir, f"VirtualMask_{timestamp_str}.avi"
+            )
+            # Mask writers are opened lazily on the first frame. This avoids
+            # leaving an invalid, header-only AVI when segmentation is disabled.
+            self.real_video_writer = None
+            self.virt_video_writer = None
+            print(">>> [Record] 视频记录已准备")
             try:
-                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                real_video_name = f"RealMask_{timestamp_str}.avi"
-                virt_video_name = f"VirtualMask_{timestamp_str}.avi"
-                real_path = os.path.join(self.save_dir, real_video_name)
-                virt_path = os.path.join(self.save_dir, virt_video_name)
-
-                # 使用 XVID 编码器，兼容性较好。
-                fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                real_fps = 20.0
-                virt_fps = 4.0
-
-                self.real_video_writer = cv2.VideoWriter(real_path, fourcc, real_fps, (400, 400))
-                # 仿真视频: Mask(400) + Depth(400) 拼接为 800x400。
-                self.virt_video_writer = cv2.VideoWriter(virt_path, fourcc, virt_fps, (800, 400))
-                print(">>> [Record] 视频记录已开始")
-
+                self.start_dual_camera_recording(timestamp_str)
             except Exception as e:
-                print(f"初始化视频记录失败: {e}")
-                self.real_video_writer = None
-                self.virt_video_writer = None
+                print(f"初始化双路摄像头记录失败: {e}")
+                self.dual_camera_recorder = None
         else:
             # 停止记录并保存。
             self.is_recording_trajectory = False
@@ -1993,23 +3259,41 @@ class MainWindow(QtWidgets.QMainWindow):
                 print(f"Real recording frames: {total_frames}")
                 print(f"建议将 real_fps 调整为: {actual_fps:.2f}")
                 print(f"========================================")
-            self.save_trajectory_to_file()
+            self.stop_dual_camera_recording()
 
             if self.real_video_writer is not None:
                 self.real_video_writer.release()
                 self.real_video_writer = None
+                self._report_finalized_mask_video(self.real_video_path)
             if self.virt_video_writer is not None:
                 self.virt_video_writer.release()
                 self.virt_video_writer = None
+                self._report_finalized_mask_video(self.virt_video_path)
+            self.save_trajectory_to_file()
+
+    @staticmethod
+    def _report_finalized_mask_video(path):
+        info = inspect_video_file(path)
+        if info["readable"]:
+            print(
+                f">>> [Record] 已验证视频: {os.path.basename(path)}, "
+                f"{info['frames']} 帧, {info['size'][0]}x{info['size'][1]}"
+            )
+        else:
+            print(f">>> [Record] WARNING: 视频无法解码: {path}")
 
     def save_trajectory_to_file(self):
         """将记录的双探子轨迹数据保存为 CSV 文件。"""
         if not self.trajectory_data:
             return
         try:
-            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp_str = (
+                getattr(self, "recording_timestamp_str", None)
+                or datetime.now().strftime("%Y%m%d_%H%M%S")
+            )
             filename = f"{timestamp_str}_DualScope.csv"
-            file_path = os.path.join(self.save_dir, filename)
+            output_dir = getattr(self, "recording_session_dir", None) or self.save_dir
+            file_path = os.path.join(output_dir, filename)
 
             import csv
             with open(file_path, mode='w', newline='', encoding='utf-8') as f:
@@ -2025,6 +3309,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 
                 # 说明已清理。
                 headers += [f"Axis_{i}" for i in range(7)]
+                headers += [f"Axis_{i}_DPOS" for i in range(7)]
+                headers += [f"Axis_{i}_MPOS" for i in range(7)]
+                headers += [f"Axis_{i}_MPOS_Valid" for i in range(7)]
                 
                 # 3. Scope 2 (鏂伴暅瀛? - 缁撴瀯瀹屽叏鐩稿悓
                 headers += ["S2_Proj_X", "S2_Proj_Y", "S2_Proj_Z", 
@@ -2034,107 +3321,62 @@ class MainWindow(QtWidgets.QMainWindow):
                 writer.writerow(headers)
                 writer.writerows(self.trajectory_data)
 
-            QMessageBox.information(self, "记录完成", f"双探子数据已保存:\n{filename}")
+            QMessageBox.information(
+                self,
+                "记录完成",
+                f"本次全部记录已保存至:\n{output_dir}",
+            )
         except Exception as e:
             print(f"保存失败: {e}")
 
     def update_axis_positions(self):
-        """
-        从控制器或 MuJoCo 获取轴位置，并更新标签与曲线。
-        """
-
+        """Read seven independent axes, preserving DPOS versus MPOS."""
         if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
             try:
                 values = self.mujoco_simulator.get_axis_values()
                 for i, pos in enumerate(values):
-                    if i < len(self.current_axis_values):
-                        self.current_axis_values[i] = pos
+                    self.current_axis_values[i] = float(pos)
+                    self.current_axis_demand_values[i] = float(pos)
+                    self.current_axis_measured_values[i] = float(pos)
+                    self.current_axis_measurement_valid[i] = True
                     if i < len(self.axis_pos_labels):
-                        self.axis_pos_labels[i].setText(f"Axis {i}: {pos:.2f}")
+                        self.axis_pos_labels[i].setText(f"Axis {i}: {pos:.2f} [SIM]")
                     if i < 6:
                         self.axis_histories[i].append(pos)
                         self.curves[i].setData(list(self.axis_histories[i]))
             except Exception:
                 pass
             return
-
-        # 1. 杩炴帴妫€鏌?        if not getattr(self, "is_mc_connected", False):
+        if not getattr(self, "is_mc_connected", False):
             return
         if not hasattr(self, "mc_connection"):
             return
-
-        # ==========================================================
-        # 说明已清理。
-        # ==========================================================
-        # 说明已清理。
-        # 说明已清理。
-        # 说明已清理。
-        # 说明已清理。
-
-        real_indices = [3, 4, 5]
-
-        # 鍏堟妸鐪熷疄鐨勮鍑烘潵瀛樺ソ
-        for i in real_indices:
+        for i in range(7):
+            demand = float("nan")
+            measured = float("nan")
             try:
-                pos = self.mc_connection.GetAxisParameter_DPOS(i)
-                # 鏇存柊缂撳瓨
-                if i < len(self.current_axis_values):
-                    self.current_axis_values[i] = pos
-                # 鏇存柊UI
-                if i < len(self.axis_pos_labels):
-                    self.axis_pos_labels[i].setText(f"Axis {i}: {pos:.2f}")
-                # 鏇存柊鏇茬嚎
-                if i < 6:
-                    self.axis_histories[i].append(pos)
-                    self.curves[i].setData(list(self.axis_histories[i]))
+                demand = float(self.mc_connection.GetAxisParameter_DPOS(i))
             except Exception:
                 pass
-
-        # ==========================================================
-        # 说明已清理。
-        # ==========================================================
-        # 说明已清理。
-        # 说明已清理。
-        # 说明已清理。
-        # 说明已清理。
-
-        # 说明已清理。
-        val_4 = self.current_axis_values[3]  # Axis 3 (60 deg)
-        val_5 = self.current_axis_values[4]  # Axis 4 (180 deg)
-        val_6 = self.current_axis_values[5]  # Axis 5 (300 deg)
-
-        # 说明已清理。
-        sim_val_1 = val_4 + val_6  # Axis 0
-        sim_val_2 = val_4 + val_5  # Axis 1
-        sim_val_3 = val_5 + val_6  # Axis 2
-
-        # 说明已清理。
-        sim_results = {0: sim_val_1, 1: sim_val_2, 2: sim_val_3}
-
-        for i, sim_pos in sim_results.items():
-            # 说明已清理。
-            if i < len(self.current_axis_values):
-                self.current_axis_values[i] = sim_pos
-
-            # 2. 鏇存柊UI鏍囩
-            if i < len(self.axis_pos_labels):
-                # 说明已清理。
-                self.axis_pos_labels[i].setText(f"Axis {i}: {sim_pos:.2f}")
-
-            # 3. 鏇存柊鏇茬嚎
-            if i < 6:
-                self.axis_histories[i].append(sim_pos)
-                self.curves[i].setData(list(self.axis_histories[i]))
-
-        # 说明已清理。
-        try:
-            pos_6 = self.mc_connection.GetAxisParameter_DPOS(6)
-            if 6 < len(self.current_axis_values):
-                self.current_axis_values[6] = pos_6
-            if 6 < len(self.axis_pos_labels):
-                self.axis_pos_labels[6].setText(f"Axis 6: {pos_6:.2f}")
-        except:
-            pass
+            try:
+                measured = float(self.mc_connection.GetAxisParameter_MPOS(i))
+            except Exception:
+                pass
+            self.current_axis_demand_values[i] = demand
+            measured_valid = bool(np.isfinite(measured))
+            self.current_axis_measured_values[i] = measured
+            self.current_axis_measurement_valid[i] = measured_valid
+            selected = measured if measured_valid else demand
+            if np.isfinite(selected):
+                self.current_axis_values[i] = selected
+                source = "M" if measured_valid else "D"
+                if i < len(self.axis_pos_labels):
+                    self.axis_pos_labels[i].setText(
+                        f"Axis {i}: {selected:.2f} [{source}]"
+                    )
+                if i < 6:
+                    self.axis_histories[i].append(selected)
+                    self.curves[i].setData(list(self.axis_histories[i]))
     def on_virtual_debug_toggled(self, checked):
         """Toggle the virtual mask debug window."""
         if checked:
@@ -2159,6 +3401,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def on_segmentation_result(self, mask, centroids):
         if not self.seg_running:
             return
+        self.latest_segmentation_mask = None if mask is None else np.asarray(mask).copy()
 
         # 说明已清理。
         virtual_target_uv = self.get_path_lookahead_uv()
@@ -2188,9 +3431,18 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 # 说明已清理。
                 points_to_draw = []
-        if getattr(self, "is_recording_trajectory", False) and self.real_video_writer is not None:
-            if mask is not None:
-                self.real_video_writer.write(cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR))
+        if getattr(self, "is_recording_trajectory", False) and mask is not None:
+            mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+            if mask_bgr.shape[:2] != (400, 400):
+                mask_bgr = cv2.resize(mask_bgr, (400, 400), interpolation=cv2.INTER_NEAREST)
+            if self.real_video_writer is None and self.real_video_path:
+                self.real_video_writer, codec = open_compatible_avi_writer(
+                    self.real_video_path,
+                    self.real_video_fps,
+                    (400, 400),
+                )
+                print(f">>> [Record] RealMask codec: {codec}")
+            self.real_video_writer.write(mask_bgr)
         # 说明已清理。
         self.centroid_overlay.set_centroids(points_to_draw)
 
@@ -2203,36 +3455,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.debug_cb.isChecked() and self.debug_window and self.debug_window.isVisible():
             self.debug_window.update_image(mask)
 
-    def update_simulated_camera_frame(self):
-        frame = None
-        if self.mujoco_simulator is not None:
-            frame = self.mujoco_simulator.latest_tip_frame_bgr
-        if frame is None or self._is_closing:
-            return
-
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = frame_rgb.shape
-        bytes_per_line = ch * w
-        qt_image = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
-            self.actual_view.size(),
-            Qt.IgnoreAspectRatio,
-            Qt.SmoothTransformation
-        )
-        self.actual_view.setPixmap(scaled_pixmap)
-        self.centroid_overlay.setGeometry(0, 0, self.actual_view.width(), self.actual_view.height())
-        self.nav_overlay.setGeometry(0, 0, self.actual_view.width(), self.actual_view.height())
-
-        if self.seg_running and hasattr(self, 'seg_queue'):
-            try:
-                if self.seg_queue.full():
-                    try:
-                        self.seg_queue.get_nowait()
-                    except Exception:
-                        pass
-                self.seg_queue.put(frame, block=False)
-            except Exception:
-                pass
 
     def on_camera_changed(self, index: int):
         """Switch physical OpenCV camera."""
@@ -2254,9 +3476,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
 
         if self.cap.isOpened():
-            # 说明已清理。
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 400)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 400)
+            # Keep the device's native frame size; only the Qt preview scales it.
             self.video_timer.start(30)
             print(f"相机 {index} 已通过 OpenCV 打开")
         else:
@@ -2270,15 +3490,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plotter.add_axes()
         self.plotter.reset_camera()
 
-    def _resolve_bronch_mesh_path(self):
-        preferred = os.path.join(BASE_DIR, "支气管.stl")
-        if os.path.exists(preferred):
-            return preferred
-        for name in os.listdir(BASE_DIR):
-            lower_name = name.lower()
-            if lower_name.endswith(".stl") and ("支气管" in name or "bronch" in lower_name):
-                return os.path.join(BASE_DIR, name)
-        raise FileNotFoundError(f"未找到支气管 STL 模型: {preferred}")
 
     def toggle_connection(self):
         """Handle connect/disconnect button click"""
@@ -2317,131 +3528,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 selected_index = i
         self.comComboBox.setCurrentIndex(selected_index)
 
-    def _reset_simulation_calibration(self, clear_model_points=False):
-        self.calibration_ready = False
-        self.calibration_rmse = None
-        self.calibration_max_error = None
-        self.calibration_residuals = []
-        self.sim_em_points = []
-        self.sim_em_pick_index = 0
-        self.sim_em_pick_active = False
-        self.sim_candidate_em_point = None
-        self.auto_simulation_mapping_ready = False
-        self.R = []
-        self.t = []
-        if clear_model_points:
-            for grid in (getattr(self, "coord_labels", []), getattr(self, "coord_labels2", [])):
-                for i, row in enumerate(grid):
-                    for j, label in enumerate(row):
-                        axis = ["X", "Y", "Z"][j]
-                        label.setText(f"P{i + 1}_{axis}: 0")
-        if self.mujoco_simulator is not None:
-            self.mujoco_simulator.enable_viewer_point_picking(False)
 
-    def _enable_automatic_simulation_mapping(self):
-        if not getattr(self, "is_simulation_mode", False) or self.mujoco_simulator is None:
-            return False
-        try:
-            self.R, self.t = self.mujoco_simulator.get_lung_auto_registration()
-            self.calibration_ready = True
-            self.auto_simulation_mapping_ready = True
-            self.ready_control = True
-            self.sim_status_label.setText("MuJoCo 自动同步已启用，无需手工标定")
-            print("MuJoCo 自动模型映射已启用")
-            print("R:", self.R)
-            print("t:", self.t)
-            if len(getattr(self, "smoothpath", [])) > 0:
-                self.mujoco_simulator.set_navigation_path_model_mm(self.smoothpath)
-            return True
-        except Exception as e:
-            self.calibration_ready = False
-            self.auto_simulation_mapping_ready = False
-            self.ready_control = False
-            QMessageBox.warning(self, "自动模型同步失败", str(e))
-            return False
 
-    def _write_em_point_to_labels(self, row_index, point):
-        if not (0 <= row_index < len(self.coord_labels2)):
-            return
-        point = np.asarray(point, dtype=float)
-        point_num = row_index + 1
-        self.coord_labels2[row_index][0].setText(f"P{point_num}_X: {point[0]:.3f}")
-        self.coord_labels2[row_index][1].setText(f"P{point_num}_Y: {point[1]:.3f}")
-        self.coord_labels2[row_index][2].setText(f"P{point_num}_Z: {point[2]:.3f}")
 
-    def _confirm_simulated_em_point(self, row_index):
-        if not self.sim_em_pick_active:
-            return False
-        if row_index != self.sim_em_pick_index:
-            QMessageBox.information(
-                self,
-                "请按顺序记录",
-                f"当前需要确认 E{self.sim_em_pick_index + 1}，请点击“记录标记点 {self.sim_em_pick_index + 1}”。",
-            )
-            return True
-        if self.sim_candidate_em_point is None:
-            QMessageBox.information(
-                self,
-                "尚未选择候选点",
-                f"请先在 MuJoCo viewer 的肺部模型上点击候选 E{self.sim_em_pick_index + 1}。",
-            )
-            return True
 
-        point = np.asarray(self.sim_candidate_em_point, dtype=float)
-        self.sim_em_points.append(point.copy())
-        self._write_em_point_to_labels(row_index, point)
-        print(f"确认 MuJoCo 电磁点 E{row_index + 1}: {point}")
-        self.sim_em_pick_index += 1
-        self.sim_candidate_em_point = None
 
-        if self.sim_em_pick_index < 3:
-            self._prompt_next_mujoco_em_point()
-        else:
-            self.sim_em_pick_active = False
-            if self.mujoco_simulator is not None:
-                self.mujoco_simulator.enable_viewer_point_picking(False)
-            self.plotter.add_text(
-                "E1/E2/E3 已确认完成，正在自动配准...",
-                position="upper_left",
-                font_size=12,
-                color="white",
-                name="mujoco_pick_msg",
-            )
-            self.plotter.render()
-            self.Kabsch_computer()
-        return True
-
-    def _start_simulated_em_calibration_sequence(self):
-        if not getattr(self, "is_simulation_mode", False) or self.mujoco_simulator is None:
-            return False
-        if len(getattr(self, "picked_points", [])) != 3:
-            QMessageBox.warning(self, "标定点不足", "请先在左侧 3D 肺模型中选择 M1/M2/M3。")
-            return False
-        self.sim_em_points = []
-        self.sim_em_pick_index = 0
-        self.sim_em_pick_active = True
-        self.calibration_ready = False
-        self.calibration_residuals = []
-        self.mujoco_simulator.pick_callback = self.on_mujoco_em_point_picked
-        return self.begin_mujoco_em_point_picking()
-
-    def _prompt_next_mujoco_em_point(self):
-        if not self.sim_em_pick_active or self.mujoco_simulator is None:
-            return False
-        if self.sim_em_pick_index >= 3:
-            return False
-        point_name = f"E{self.sim_em_pick_index + 1}"
-        self.sim_status_label.setText(f"MuJoCo 标定采集中: 请点击 {point_name}")
-        self.plotter.add_text(
-            f"请在 MuJoCo viewer 肺部模型上点击候选 {point_name}，确认后点击右侧“记录标记点 {self.sim_em_pick_index + 1}”",
-            position="upper_left",
-            font_size=12,
-            color="white",
-            name="mujoco_pick_msg",
-        )
-        self.plotter.render()
-        self.mujoco_simulator.enable_viewer_point_picking(True)
-        return True
 
     def select_points(self):
         """Enable picking three reference points in the main 3D view."""
@@ -2504,72 +3595,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def record_points_3(self):
         self._record_ref_point(2)
 
-    def _record_ref_point(self, row_index):
-        if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
-            if self._confirm_simulated_em_point(row_index):
-                return
-        if self.ref_pos is None:
-            QMessageBox.warning(self, "未检测到定位探头", "未检测到用于标定的电磁探头（Port 2）。")
-            return
-        if not (0 <= row_index < len(self.coord_labels2)):
-            return
-        point_num = row_index + 1
-        self.coord_labels2[row_index][0].setText(f"P{point_num}_X: {self.ref_pos[0]:.3f}")
-        self.coord_labels2[row_index][1].setText(f"P{point_num}_Y: {self.ref_pos[1]:.3f}")
-        self.coord_labels2[row_index][2].setText(f"P{point_num}_Z: {self.ref_pos[2]:.3f}")
 
-    def begin_mujoco_em_point_picking(self):
-        if not getattr(self, "is_simulation_mode", False) or self.mujoco_simulator is None:
-            return False
-        self.mujoco_simulator.pick_callback = self.on_mujoco_em_point_picked
-        if self.mujoco_simulator.viewer is not None:
-            self._prompt_next_mujoco_em_point()
-            return True
-        if not hasattr(self, "mujoco_pick_window") or self.mujoco_pick_window is None:
-            self.mujoco_pick_window = MujocoLungPickWindow(self.mesh, self.on_mujoco_em_point_picked, self)
-        self.mujoco_pick_window.show()
-        self.mujoco_pick_window.raise_()
-        self.mujoco_pick_window.activateWindow()
-        return True
 
-    def on_mujoco_em_point_picked(self, point, *args):
-        if point is None:
-            return
-        point = np.asarray(point, dtype=float)
-        if self.mujoco_simulator is not None:
-            self.mujoco_simulator.set_clicked_em_position_mm(point, notify=False)
-        self.ref_pos = point
-        self.x_label.setText("Ref X: {:.2f}".format(point[0]))
-        self.y_label.setText("Ref Y: {:.2f}".format(point[1]))
-        self.z_label.setText("Ref Z: {:.2f}".format(point[2]))
-
-        if self.sim_em_pick_active:
-            if self.sim_em_pick_index >= 3:
-                return
-            self.sim_candidate_em_point = point.copy()
-            point_name = f"E{self.sim_em_pick_index + 1}"
-            print(f"更新 MuJoCo 候选电磁点 {point_name}: {point}")
-            self.sim_status_label.setText(
-                f"MuJoCo 候选 {point_name}: X={point[0]:.2f}, Y={point[1]:.2f}, Z={point[2]:.2f}"
-            )
-            self.plotter.add_text(
-                f"候选 {point_name}: X={point[0]:.2f}, Y={point[1]:.2f}, Z={point[2]:.2f}\n确认请点击右侧“记录标记点 {self.sim_em_pick_index + 1}”",
-                position="upper_left",
-                font_size=12,
-                color="white",
-                name="mujoco_pick_msg",
-            )
-            self.plotter.render()
-            return
-
-        self.plotter.add_text(
-            "已更新 MuJoCo 虚拟电磁点，可点击记录标记点",
-            position="upper_left",
-            font_size=12,
-            color="green",
-            name="mujoco_pick_msg",
-        )
-        self.plotter.render()
 
     def select_endpoint_mode(self):
         """
@@ -2661,6 +3688,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 tools_dict = self.data_queue.get()
                 while not self.data_queue.empty():
                     tools_dict = self.data_queue.get()
+            self.latest_tools_dict = tools_dict
 
             if tools_dict:
 
@@ -2778,12 +3806,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 if getattr(self, "is_recording_trajectory", False):
                     current_t = time.time() - self.recording_start_time
                     axes_pos = list(self.current_axis_values) if hasattr(self, 'current_axis_values') else [0]*7
+                    axes_demand = list(getattr(self, "current_axis_demand_values", [float("nan")] * 7))
+                    axes_measured = list(getattr(self, "current_axis_measured_values", [float("nan")] * 7))
+                    axes_measured_valid = [
+                        int(value) for value in getattr(self, "current_axis_measurement_valid", [False] * 7)
+                    ]
                     
                     # 缁勫悎鏁版嵁: [Time] + Scope1 + Axis + Scope2
                     s1_data = rec_scope1[:3] + rec_scope1[3:6] + list(rec_quat1)
                     s2_data = rec_scope2[:3] + rec_scope2[3:6] + list(rec_quat2)
 
-                    row_data = [current_t] + s1_data + axes_pos + s2_data
+                    row_data = (
+                        [current_t] + s1_data + axes_pos + axes_demand
+                        + axes_measured + axes_measured_valid + s2_data
+                    )
                     self.trajectory_data.append(row_data)
 
             # 说明已清理。
@@ -2794,10 +3830,12 @@ class MainWindow(QtWidgets.QMainWindow):
             # 说明已清理。
             # 说明已清理。
             self._update_virtual_camera_logic()
+            self.record_dual_camera_frame_pair()
+            self._automation_frame_update()
 
         except Exception as e:
             # 说明已清理。
-            pass
+            print(f"可视化更新异常: {e}")
 
     def _update_virtual_camera_logic(self):
         """Update virtual camera state."""
@@ -2872,18 +3910,18 @@ class MainWindow(QtWidgets.QMainWindow):
         说明已清理。
         说明已清理。
         """
-        if not hasattr(self, "smoothpath") or len(self.smoothpath) == 0:
-            return None
-
-        # 说明已清理。
-        path_arr = np.array(self.smoothpath)
-        dists = np.linalg.norm(path_arr - self.virtual_position, axis=1)
-        curr_idx = np.argmin(dists)
-
-        # 2. 鎵惧墠鐬荤偣
-        look_ahead_steps = 12
-        target_idx = min(curr_idx + look_ahead_steps, len(path_arr) - 1)
-        target_pt = path_arr[target_idx]
+        action = getattr(self, "auto_nav_action", None)
+        if self.auto_nav_state == "running" and action is not None and action.get("target_model_mm") is not None:
+            target_pt = np.asarray(action["target_model_mm"], dtype=float)
+        else:
+            if not hasattr(self, "smoothpath") or len(self.smoothpath) == 0:
+                return None
+            path_arr = np.array(self.smoothpath)
+            dists = np.linalg.norm(path_arr - self.virtual_position, axis=1)
+            curr_idx = np.argmin(dists)
+            look_ahead_steps = 12
+            target_idx = min(curr_idx + look_ahead_steps, len(path_arr) - 1)
+            target_pt = path_arr[target_idx]
 
         # 说明已清理。
         if not hasattr(self, "cam_R_cw") or not hasattr(self, "cam_C"):
@@ -3173,7 +4211,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 if hasattr(self, "get_virtual_visual_center"):
                     v_centers_list, best_idx, v_mask, v_dist = self.get_virtual_visual_center()
                     
-                    if getattr(self, "is_recording_trajectory", False) and getattr(self, "virt_video_writer", None) is not None:
+                    if getattr(self, "is_recording_trajectory", False):
                         try:
                             if v_mask is None: mask_bgr = np.zeros((400, 400, 3), dtype=np.uint8)
                             else: mask_bgr = cv2.cvtColor(v_mask, cv2.COLOR_GRAY2BGR)
@@ -3189,6 +4227,13 @@ class MainWindow(QtWidgets.QMainWindow):
                             if depth_color.shape[:2] != (400, 400): depth_color = cv2.resize(depth_color, (400, 400))
                             combined_frame = np.hstack([mask_bgr, depth_color])
                             if combined_frame.shape[:2] != (400, 800): combined_frame = cv2.resize(combined_frame, (800, 400))
+                            if self.virt_video_writer is None and self.virt_video_path:
+                                self.virt_video_writer, codec = open_compatible_avi_writer(
+                                    self.virt_video_path,
+                                    self.virt_video_fps,
+                                    (800, 400),
+                                )
+                                print(f">>> [Record] VirtualMask codec: {codec}")
                             self.virt_video_writer.write(combined_frame)
                         except Exception as e:
                             print(f"写入虚拟视频失败: {e}")
@@ -3315,36 +4360,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             QMessageBox.information(self, "配准完成", message)
 
-    def _resolve_centerline_iges_path(self):
-        candidates = [
-            os.path.join(BASE_DIR, "老模型中心线.igs"),
-            os.path.join(PROJECT_ROOT, "老模型中心线.igs"),
-            os.path.join(os.getcwd(), "老模型中心线.igs"),
-        ]
-        for path in candidates:
-            if os.path.isfile(path):
-                return path
-        for directory in (BASE_DIR, PROJECT_ROOT):
-            if not os.path.isdir(directory):
-                continue
-            for name in os.listdir(directory):
-                if name.lower().endswith((".igs", ".iges")):
-                    return os.path.join(directory, name)
-        raise FileNotFoundError("未找到中心线 IGES 文件，请确认 window/老模型中心线.igs 存在。")
 
-    def _resolve_segmentation_weights_path(self):
-        weights_name = "1205weights_49.pth"
-        candidates = [
-            os.path.join(BASE_DIR, weights_name),
-            os.path.join(PROJECT_ROOT, weights_name),
-            os.path.join(os.getcwd(), weights_name),
-        ]
-        for path in candidates:
-            if os.path.isfile(path):
-                return os.path.abspath(path)
-        raise FileNotFoundError(
-            f"未找到分割模型权重 {weights_name}，请确认文件位于 window 目录或项目根目录。"
-        )
 
     def route_plan(self):
         try:
@@ -3388,8 +4404,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # 渲染更新界面。
         self.plotter.render()
         if hasattr(self, "path_actor_virtual"):
-            self.virtual_view.remove_actor(self.path_actor_virtual)
-        self.path_actor_virtual = self.virtual_view.add_mesh(line, color="red", line_width=4)
+            try:
+                self.virtual_view.remove_actor(self.path_actor_virtual)
+            except Exception:
+                pass
+        # Keep the clinical virtual camera unobstructed. Navigation targets are
+        # available in the optional target-observation window instead.
+        self.path_actor_virtual = None
         self.virtual_view.render()
         if getattr(self, "is_simulation_mode", False) and self.mujoco_simulator is not None:
             try:
@@ -3398,6 +4419,69 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 QMessageBox.warning(self, "路径同步失败", str(e))
         self.enable_virtual_seg = True
+        self.auto_nav_tracking_path = None
+        self.auto_nav_global_profile = None
+        self.auto_nav_target_index = 0
+        self.auto_nav_nearest_index = 0
+        self.auto_nav_path_distance = 0.0
+        self.auto_nav_passed_count = 0
+        self.auto_nav_progress = 0.0
+        self.auto_nav_filtered_steering[:] = 0.0
+        self.auto_nav_proximal_command[:] = 0.0
+        self.auto_nav_distal_command[:] = 0.0
+        self.auto_nav_previous_heading_error[:] = 0.0
+        self.auto_nav_pid_integral[:] = 0.0
+        self.auto_nav_pid_derivative[:] = 0.0
+        self.auto_nav_pid_output_filtered[:] = 0.0
+        self.auto_nav_pid_last_time = None
+        self.auto_nav_steering_reversal_frames = 0
+        self.auto_nav_filtered_distal_assist = 0.0
+        self.auto_nav_elastic_release_active = False
+        self.auto_nav_elastic_release_frames = 0
+        self.auto_nav_curve_command[:] = 0.0
+        self.auto_nav_curve_direction[:] = 0.0
+        self.auto_nav_curve_release_frames = 0
+        self.auto_nav_curve_release_cooldown = 0
+        self.auto_nav_control_basis = None
+        self.auto_nav_last_curve_heading_error = None
+        self.auto_nav_curve_error_rise_frames = 0
+        self.auto_nav_filtered_position = None
+        self.auto_nav_filtered_forward = None
+        self.auto_nav_waypoint_reached_frames = 0
+        self.auto_nav_waypoint_controller_index = -1
+        self.auto_nav_elastic_bend_direction[:] = 0.0
+        self.auto_nav_elastic_release_countdown = 0
+        self.auto_nav_elastic_settle_frames = 0
+        self.auto_nav_straight_mode = True
+        self.auto_nav_filtered_path_curve = 0.0
+        self.auto_nav_straight_correction_active = False
+        self.auto_nav_last_turn_direction[:] = 0.0
+        self.auto_nav_committed_turn_direction[:] = 0.0
+        self.auto_nav_turn_severity = 0.0
+        self.auto_nav_turn_active = False
+        self.auto_nav_control_frames = 0
+        self.auto_nav_servo_target_index = -1
+        self.auto_nav_target_transition_frames = 0
+        self.auto_nav_filtered_bearing[:] = 0.0
+        self.auto_nav_last_bearing_angle_deg = None
+        self.auto_nav_bearing_improvement = 0.0
+        self.auto_nav_action_hold_countdown = 0
+        self.auto_nav_held_proximal_target[:] = 0.0
+        self.auto_nav_held_distal_target[:] = 0.0
+        self.auto_nav_curve_memory = 0.0
+        self.auto_nav_guidance_direction = None
+        self.auto_nav_straight_error_frames = 0
+        self.auto_nav_straight_clear_frames = 0
+        self.auto_nav_motion_mode = "forward"
+        self.auto_nav_behind_frames = 0
+        self.auto_nav_front_frames = 0
+        self.auto_nav_bend_gain_scale = 1.0
+        self.auto_nav_forward_reengage_frames = 0
+        self.auto_nav_filtered_speed = 0.0
+        self.auto_nav_last_insertion_step = 0.0
+        self.auto_nav_last_position = None
+        self.auto_nav_stall_frames = 0
+        self.refresh_automation_path_status()
         print("虚拟视角分割准备完成。")
     def read_iges(self,file_path):
         iges = pyiges.read(file_path)
@@ -3667,6 +4751,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         ret, frame = self.cap.read()
         if not ret: return
+        self.latest_real_frame_bgr = frame.copy()
 
         if not self._is_closing:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -3740,23 +4825,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.seg_running = True
         self.seg_thread.start()
 
-    def _reset_segmentation_ui(self):
-        self.seg_running = False
-        self.seg_button.blockSignals(True)
-        self.seg_button.setChecked(False)
-        self.seg_button.setText("开始分割")
-        self.seg_button.blockSignals(False)
 
-    @QtCore.pyqtSlot(str)
-    def _on_segmentation_error(self, message):
-        self._reset_segmentation_ui()
-        QMessageBox.critical(self, "分割模型加载失败", message)
 
-    @QtCore.pyqtSlot()
-    def _on_segmentation_thread_finished(self):
-        self._reset_segmentation_ui()
-        self.seg_worker = None
-        self.seg_thread = None
 
     def stop_segmentation(self):
         if not self.seg_running:
@@ -3826,6 +4896,16 @@ class MainWindow(QtWidgets.QMainWindow):
         # 说明已清理。
         if hasattr(self, 'timer'): self.timer.stop()
         if hasattr(self, 'video_timer'): self.video_timer.stop()
+        self.is_recording_trajectory = False
+        self.stop_dual_camera_recording()
+        for writer_name in ("real_video_writer", "virt_video_writer"):
+            writer = getattr(self, writer_name, None)
+            if writer is not None:
+                writer.release()
+                setattr(self, writer_name, None)
+        if getattr(self, "vla_recording", False):
+            self.stop_vla_episode()
+        self.stop_auto_navigation()
 
         # 2. 鍋滄 NDI Tracker
         if hasattr(self, "tracker_wrapper") and self.tracker_wrapper:
@@ -3851,20 +4931,44 @@ class MainWindow(QtWidgets.QMainWindow):
             self.virt_debug_window.close()
         if hasattr(self, "mujoco_pick_window") and self.mujoco_pick_window:
             self.mujoco_pick_window.close()
+        if getattr(self, "navigation_target_window", None):
+            self.navigation_target_window.close()
+        if getattr(self, "d435_capture_window", None):
+            try:
+                self.d435_capture_window.close()
+            except Exception:
+                pass
         self.virt_green_actor = None
         print("[Exit] Bye!")
         event.accept()
         os._exit(0)
+
+
+bind_automation_runtime_globals(globals())
+bind_simulation_runtime_globals(globals())
+
+
+def create_environment_window(environment, data_queue, mujoco_xml=None):
+    """Create the exact workbench selected by the startup environment dialog."""
+    if str(environment).lower() == "real":
+        return load_real_environment_window_class()(data_queue)
+    return MainWindow(
+        data_queue,
+        initial_environment="simulation",
+        initial_mujoco_xml=mujoco_xml,
+    )
+
+
 def main():
     app = QtWidgets.QApplication(sys.argv)
     apply_product_style(app)
     startup = StartupEnvironmentDialog()
     if startup.exec_() != QtWidgets.QDialog.Accepted:
         return
-    window = MainWindow(
+    window = create_environment_window(
+        startup.selected_environment,
         Queue(),
-        initial_environment=startup.selected_environment,
-        initial_mujoco_xml=startup.selected_mujoco_xml,
+        mujoco_xml=startup.selected_mujoco_xml,
     )
     window.show()
     sys.exit(app.exec_())

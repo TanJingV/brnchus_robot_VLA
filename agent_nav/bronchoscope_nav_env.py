@@ -6,6 +6,7 @@ from typing import List, Optional, Sequence, Tuple
 import gymnasium as gym
 import mujoco
 import numpy as np
+from two_segment_tdcr_opencr.contact_stabilization import ActiveTipContactRegularizer
 from gymnasium import spaces
 
 
@@ -14,7 +15,7 @@ class NavEnvConfig:
     xml_path: str
     max_episode_steps: int = 400
     frame_skip: int = 10
-    bend_gain: float = 0.10
+    bend_gain: float = 0.003
     planar_bend_gain: float = 20.0
     insert_gain: float = 0.01
     success_threshold_m: float = 0.004
@@ -63,6 +64,7 @@ class BronchoscopeNavEnv(gym.Env):
 
         self.model = mujoco.MjModel.from_xml_path(self.config.xml_path)
         self.data = mujoco.MjData(self.model)
+        self.contact_regularizer = ActiveTipContactRegularizer(self.model, self.data)
 
         self.tip_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "end_6")
         if self.tip_body_id < 0:
@@ -174,7 +176,11 @@ class BronchoscopeNavEnv(gym.Env):
         self.current_ctrl[0] = np.clip(slider_cmd, self.ctrl_min[0], self.ctrl_max[0])
 
         if self.bend_mode == "tendon":
-            angles = np.deg2rad(np.array([0, 60, 120, 180, 240, 300], dtype=np.float64))
+            # act_t1..3 are proximal wires at 0/120/240 deg; act_t4..6
+            # are distal wires at 60/180/300 deg and pass through the proximal section.
+            angles = np.deg2rad(
+                np.array([0, 120, 240, 60, 180, 300], dtype=np.float64)
+            )
             projection = bend[0] * np.cos(angles) + bend[1] * np.sin(angles)
             bend_cmd = self.home_ctrl[1:] - self.config.bend_gain * projection
             self.current_ctrl[1:] = np.clip(bend_cmd, self.ctrl_min[1:], self.ctrl_max[1:])
@@ -190,17 +196,22 @@ class BronchoscopeNavEnv(gym.Env):
         penalty = 0.0
         for i in range(self.data.ncon):
             contact = self.data.contact[i]
-            geom1 = int(contact.geom1)
-            geom2 = int(contact.geom2)
-            b1 = int(self.model.geom_bodyid[geom1])
-            b2 = int(self.model.geom_bodyid[geom2])
-            if b1 == self.tip_body_id or b2 == self.tip_body_id:
+            # A rigid-flex/geom contact stores -1 on the flex side of
+            # contact.geom. Never use that value as a NumPy index: -1 would
+            # silently select the model's last geom and corrupt the penalty.
+            contact_body_ids = {
+                int(self.model.geom_bodyid[geom_id])
+                for geom_id in map(int, contact.geom)
+                if geom_id >= 0
+            }
+            if self.tip_body_id in contact_body_ids:
                 penalty += 1.0
         return penalty
 
     def reset(self, *, seed: Optional[int] = None, options=None):
         super().reset(seed=seed)
         mujoco.mj_resetData(self.model, self.data)
+        self.contact_regularizer.reset()
         self._step_count = 0
         self._last_action[:] = 0.0
         self._select_target(seed=seed)
@@ -210,6 +221,7 @@ class BronchoscopeNavEnv(gym.Env):
         self.data.ctrl[self.ctrl_ids] = self.current_ctrl
 
         for _ in range(20):
+            self.contact_regularizer.before_step()
             mujoco.mj_step(self.model, self.data)
 
         self._last_dist = float(np.linalg.norm(self.target - self._tip_pos()))
@@ -220,6 +232,7 @@ class BronchoscopeNavEnv(gym.Env):
         self._apply_action(np.asarray(action, dtype=np.float64))
 
         for _ in range(self.config.frame_skip):
+            self.contact_regularizer.before_step()
             mujoco.mj_step(self.model, self.data)
 
         tip = self._tip_pos()

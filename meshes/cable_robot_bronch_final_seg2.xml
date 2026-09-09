@@ -1,188 +1,779 @@
-<mujoco model="robot3_with_cable_v11_tip_motors_split_bodies">
-  <compiler angle="radian" autolimits="true" />
-
-  <option timestep="0.002" iterations="50" tolerance="1e-4" integrator="RK4" gravity="0 0 -9.81" impratio="10" />
-<!-- <option timestep="0.001" iterations="100" tolerance="1e-4" integrator="implicit" gravity="0 0 -9.81" impratio="100" /> -->
-<!-- <option timestep="0.001" iterations="100" tolerance="1e-4" integrator="implicitfast" gravity="0 0 -9.81" impratio="100" cone="elliptic"/> -->
-
-  <extension>
-    <plugin plugin="mujoco.elasticity.cable" />
-  </extension>
-
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="bronchoscope_with_two_section_opencr_tdcr">
+  <compiler angle="radian" />
+  <option timestep="0.0002" impratio="100" tolerance="1e-09" integrator="implicitfast" iterations="120" />
+  <size nkey="1" />
   <visual>
-    <quality shadowsize="1024" />
-    <!-- model extent is 0.8 m; 0.000125 gives a 0.1 mm near clipping plane. -->
-    <map znear="0.000125" />
     <headlight diffuse="0.6 0.6 0.6" />
+    <map stiffness="700" force="0.1" fogstart="1" fogend="15" znear="0.000125" zfar="40" haze="1" shadowscale="0.5" />
     <rgba haze="0.15 0.25 0.35 1" />
   </visual>
-
+  <statistic extent="0.8" center="0 0 0" />
   <default>
-    <motor ctrllimited="true" />
-    <geom contype="2" conaffinity="2" group="0" margin="0.001" condim="6" density="100" />
+    <geom contype="2" conaffinity="2" condim="6" margin="0.001" density="100" />
+    <general ctrllimited="true" />
   </default>
-
+  <extension>
+    <plugin plugin="mujoco.elasticity.cable">
+      <instance name="compositecable_stiff">
+        <config key="twist" value="0.43" />
+        <config key="bend" value="0.57" />
+        <config key="vmax" value="1" />
+      </instance>
+    </plugin>
+  </extension>
+  <custom>
+    <text name="composite_cable_stiff" data="rope_cable_stiff" />
+  </custom>
   <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072" />
+    <texture type="2d" name="plane" builtin="checker" mark="cross" rgb1="0.2 0.3 0.4" rgb2="0.1 0.15 0.2" markrgb="0.8 0.8 0.8" width="512" height="512" />
+    <material name="plane" texture="plane" texuniform="true" texrepeat="10 10" reflectance="0.3" />
+    <mesh name="visual_mesh" file="part/bronchus.stl" scale="0.001 0.001 0.001" />
     <mesh name="base_link" file="base_link.STL" />
     <mesh name="slid_base" file="slid_base.STL" />
     <mesh name="slid_M" file="slid_M.STL" />
     <mesh name="lian" file="lian.STL" />
     <mesh name="qudong1" file="qudong1.STL" />
     <mesh name="qudong2" file="qudong2.STL" />
-
-    <texture name="plane" type="2d" builtin="checker" rgb1=".1 .1 .1" rgb2=".9 .9 .9" width="512" height="512" mark="cross" markrgb=".8 .8 .8" />
-    <material name="plane" reflectance="0.3" texture="plane" texrepeat="1 1" texuniform="true" />
   </asset>
-
   <worldbody>
-    <geom name="floor" pos="0 0 0" size="0 0 .25" type="plane" material="plane" condim="3" group="5" />
-    <light directional="true" ambient=".3 .3 .3" pos="30 30 30" dir="0 -.5 -1" diffuse=".5 .5 .5" specular=".5 .5 .5" />   
-
-    <!-- <body pos="0.3138 0.015 2.054" name="box1">
-        <freejoint />
-        <geom type="box" size="0.1 0.1 0.1" mass="2" rgba="1 0 0 1" condim="3" contype="1" group="1" />
-    </body> -->
-
-    <body name="base_link" pos="-0.5 0 1">
-        <geom type="mesh" contype="2" conaffinity="2" group="2" rgba="0.792157 0.819608 0.933333 1" mesh="base_link" />
-        
-        <body name="slid_base" pos="0 0 0">
-          <inertial pos="0.03293 7.3319e-05 0.016441" quat="0.000144867 0.705902 0.000144374 0.708309" mass="0.419" diaginertia="0.0187072 0.018638 0.000128635" />
-          <joint name="slid_base" axis="0 0 1" />
-          <geom type="mesh" contype="2" conaffinity="2" group="2" rgba="0.75294 0.75294 0.75294 1" mesh="slid_base" />
-          
-          <body name="slid_M" pos="-0.2 0 0.0195">
-            <inertial pos="0.012817 0.0243347 0.035479" quat="0.646657 0.297989 -0.319545 0.625243" mass="0.743603" diaginertia="0.0033383 0.00264726 0.0020156" />
-            <joint name="slid_M" type="slide" axis="1 0 0" range="0 0.577" armature="5" frictionloss="1000" damping="1000" />
-            <geom type="mesh" contype="2" conaffinity="2" group="1" rgba="0.45294 0.45294 0.45294 1" mesh="slid_M" />
-            <geom pos="0.0988 0 0.074501" quat="1 0 0 0" type="mesh" contype="2" conaffinity="2" group="1" density="1" rgba="0.85294 0.85294 0.75294 1" mesh="qudong1" />
-            <geom pos="0.0988 0 0.074501" quat="1 0 0 0" type="mesh" contype="2" conaffinity="2" group="1" density="1" rgba="0.85294 0.85294 0.75294 1" mesh="qudong2" />
-            
-            <body name="base_plate" pos="0.0988 0 0.0745">
-              <geom type="cylinder" size="0.004 0.001" rgba=".5 .5 .5 1" euler="0 1.57 0" contype="1" />
-              <site name="base_s1" pos="0 0.001750 0.000000" size="0.001" rgba="1 0 0 1" /> 
-              <site name="base_s2" pos="0 0.000875 0.001516" size="0.001" rgba="1 1 0 1" /> 
-              <site name="base_s3" pos="0 -0.000875 0.001516" size="0.001" rgba="0 1 0 1" /> 
-              <site name="base_s4" pos="0 -0.001750 0.000000" size="0.001" rgba="0 1 1 1" /> 
-              <site name="base_s5" pos="0 -0.000875 -0.001516" size="0.001" rgba="0 0 1 1" /> 
-              <site name="base_s6" pos="0 0.000875 -0.001516" size="0.001" rgba="1 0 1 1" />
-
-              <body name="cable_stiff" pos="0 0 0">
-                <composite prefix="cable_stiff" type="cable" curve="s" count="31 1 1" size="0.65" initial="none">
-                  <plugin plugin="mujoco.elasticity.cable">
-                    <config key="twist" value="0.43" />
-                    <config key="bend" value="0.57" />
-                    <config key="vmax" value="1" />
-                  </plugin>
-                  <joint kind="main" damping="10" stiffness="500" armature="0.01" />
-                  <geom type="cylinder" size=".0018" rgba=".8  .2 .1 1" condim="3" contype="1" mass="0.0001" solref="0.001 1" solimp="0.99 0.99 0.01" />
-                </composite>
+    <geom name="floor" size="0 0 0.25" type="plane" condim="3" material="plane" />
+    <light pos="30 30 30" dir="0 -0.447214 -0.894427" type="directional" ambient="0.3 0.3 0.3" diffuse="0.5 0.5 0.5" specular="0.5 0.5 0.5" />
+    <body name="pipe" pos="0.3138 0.015 1.054" quat="0.707388 0 0 -0.706825">
+      <geom name="bronchial_visual" pos="0.0072 -0.004 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" rgba="0.8 0.2 0.2 0.15" mesh="visual_mesh" />
+      <flexcomp name="bronchial_wall_nonconvex" type="mesh" file="part/bronchus_collision_solid_nonconvex.stl" rigid="true" scale="0.001 0.001 0.001" radius="0.001" rgba="0.05 0.85 0.18 0.42" group="4" pos="0.0072 -0.004 0" quat="1 0 0 0">
+        <contact internal="false" selfcollide="none" contype="1" conaffinity="1" priority="10" condim="1" friction="0 0 0" solref="0.002 1" solimp="0.95 0.99 0.001" margin="0.00015" />
+      </flexcomp>
+    </body>
+    <body name="base_link" pos="-0.38279 0.00293 1.00064">
+      <geom type="mesh" group="2" rgba="0.792157 0.819608 0.933333 1" mesh="base_link" />
+      <body name="slid_base">
+        <inertial pos="0.03293 7.3319e-05 0.016441" quat="0.000144867 0.705902 0.000144374 0.708309" mass="0.419" diaginertia="0.0187072 0.018638 0.000128635" />
+        <joint name="slid_base" pos="0 0 0" axis="0 0 1" />
+        <geom type="mesh" group="2" rgba="0.75294 0.75294 0.75294 1" mesh="slid_base" />
+        <body name="slid_M" pos="-0.2 0 0.0195">
+          <inertial pos="0.012817 0.0243347 0.035479" quat="0.646657 0.297989 -0.319545 0.625243" mass="0.743603" diaginertia="0.0033383 0.00264726 0.0020156" />
+          <joint name="slid_M" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.577" armature="0.1" damping="5" frictionloss="0.2" />
+          <geom type="mesh" group="1" rgba="0.45294 0.45294 0.45294 1" mesh="slid_M" />
+          <geom pos="0.0988 0 0.074501" quat="1 0 0 0" type="mesh" group="1" density="1" rgba="0.85294 0.85294 0.75294 1" mesh="qudong1" />
+          <geom pos="0.0988 0 0.074501" quat="1 0 0 0" type="mesh" group="1" density="1" rgba="0.85294 0.85294 0.75294 1" mesh="qudong2" />
+          <body name="base_plate" pos="0.0988 0 0.0745">
+            <geom size="0.004 0.001" quat="0.707388 0 0.706825 0" type="cylinder" contype="1" condim="1" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" />
+            <site name="base_s1" pos="0 0.00175 0" size="0.001" rgba="1 0 0 1" />
+            <site name="base_s2" pos="0 0.000875 0.001516" size="0.001" rgba="1 1 0 1" />
+            <site name="base_s3" pos="0 -0.000875 0.001516" size="0.001" rgba="0 1 0 1" />
+            <site name="base_s4" pos="0 -0.00175 0" size="0.001" rgba="0 1 1 1" />
+            <site name="base_s5" pos="0 -0.000875 -0.001516" size="0.001" rgba="0 0 1 1" />
+            <site name="base_s6" pos="0 0.000875 -0.001516" size="0.001" rgba="1 0 1 1" />
+            <body name="cable_stiff">
+              <body name="cable_stiffB_first">
+                <geom name="cable_stiffG0" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                <geom name="smooth_collision_cable_stiffG0" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                <site name="cable_stiffS_first" pos="0 0 0" group="3" />
+                <plugin instance="compositecable_stiff" />
+                <body name="cable_stiffB_1" pos="0.0216667 0 0">
+                  <joint name="cable_stiffJ_1" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                  <geom name="cable_stiffG1" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                  <geom name="smooth_collision_cable_stiffG1" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                  <plugin instance="compositecable_stiff" />
+                  <body name="cable_stiffB_2" pos="0.0216667 0 0">
+                    <joint name="cable_stiffJ_2" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                    <geom name="cable_stiffG2" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                    <geom name="smooth_collision_cable_stiffG2" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                    <plugin instance="compositecable_stiff" />
+                    <body name="cable_stiffB_3" pos="0.0216667 0 0">
+                      <joint name="cable_stiffJ_3" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                      <geom name="cable_stiffG3" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                      <geom name="smooth_collision_cable_stiffG3" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                      <plugin instance="compositecable_stiff" />
+                      <body name="cable_stiffB_4" pos="0.0216667 0 0">
+                        <joint name="cable_stiffJ_4" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                        <geom name="cable_stiffG4" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                        <geom name="smooth_collision_cable_stiffG4" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                        <plugin instance="compositecable_stiff" />
+                        <body name="cable_stiffB_5" pos="0.0216667 0 0">
+                          <joint name="cable_stiffJ_5" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                          <geom name="cable_stiffG5" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                          <geom name="smooth_collision_cable_stiffG5" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                          <plugin instance="compositecable_stiff" />
+                          <body name="cable_stiffB_6" pos="0.0216667 0 0">
+                            <joint name="cable_stiffJ_6" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                            <geom name="cable_stiffG6" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                            <geom name="smooth_collision_cable_stiffG6" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                            <plugin instance="compositecable_stiff" />
+                            <body name="cable_stiffB_7" pos="0.0216667 0 0">
+                              <joint name="cable_stiffJ_7" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                              <geom name="cable_stiffG7" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                              <geom name="smooth_collision_cable_stiffG7" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                              <plugin instance="compositecable_stiff" />
+                              <body name="cable_stiffB_8" pos="0.0216667 0 0">
+                                <joint name="cable_stiffJ_8" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                <geom name="cable_stiffG8" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                <geom name="smooth_collision_cable_stiffG8" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                <plugin instance="compositecable_stiff" />
+                                <body name="cable_stiffB_9" pos="0.0216667 0 0">
+                                  <joint name="cable_stiffJ_9" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                  <geom name="cable_stiffG9" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                  <geom name="smooth_collision_cable_stiffG9" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                  <plugin instance="compositecable_stiff" />
+                                  <body name="cable_stiffB_10" pos="0.0216667 0 0">
+                                    <joint name="cable_stiffJ_10" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                    <geom name="cable_stiffG10" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                    <geom name="smooth_collision_cable_stiffG10" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                    <plugin instance="compositecable_stiff" />
+                                    <body name="cable_stiffB_11" pos="0.0216667 0 0">
+                                      <joint name="cable_stiffJ_11" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                      <geom name="cable_stiffG11" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                      <geom name="smooth_collision_cable_stiffG11" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                      <plugin instance="compositecable_stiff" />
+                                      <body name="cable_stiffB_12" pos="0.0216667 0 0">
+                                        <joint name="cable_stiffJ_12" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                        <geom name="cable_stiffG12" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                        <geom name="smooth_collision_cable_stiffG12" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                        <plugin instance="compositecable_stiff" />
+                                        <body name="cable_stiffB_13" pos="0.0216667 0 0">
+                                          <joint name="cable_stiffJ_13" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                          <geom name="cable_stiffG13" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                          <geom name="smooth_collision_cable_stiffG13" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                          <plugin instance="compositecable_stiff" />
+                                          <body name="cable_stiffB_14" pos="0.0216667 0 0">
+                                            <joint name="cable_stiffJ_14" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                            <geom name="cable_stiffG14" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                            <geom name="smooth_collision_cable_stiffG14" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                            <plugin instance="compositecable_stiff" />
+                                            <body name="cable_stiffB_15" pos="0.0216666 0 0">
+                                              <joint name="cable_stiffJ_15" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                              <geom name="cable_stiffG15" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                              <geom name="smooth_collision_cable_stiffG15" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                              <plugin instance="compositecable_stiff" />
+                                              <body name="cable_stiffB_16" pos="0.0216667 0 0">
+                                                <joint name="cable_stiffJ_16" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                                <geom name="cable_stiffG16" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                <geom name="smooth_collision_cable_stiffG16" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                <plugin instance="compositecable_stiff" />
+                                                <body name="cable_stiffB_17" pos="0.0216667 0 0">
+                                                  <joint name="cable_stiffJ_17" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                                  <geom name="cable_stiffG17" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                  <geom name="smooth_collision_cable_stiffG17" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                  <plugin instance="compositecable_stiff" />
+                                                  <body name="cable_stiffB_18" pos="0.0216666 0 0">
+                                                    <joint name="cable_stiffJ_18" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                                    <geom name="cable_stiffG18" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                    <geom name="smooth_collision_cable_stiffG18" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                    <plugin instance="compositecable_stiff" />
+                                                    <body name="cable_stiffB_19" pos="0.0216667 0 0">
+                                                      <joint name="cable_stiffJ_19" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                                      <geom name="cable_stiffG19" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                      <geom name="smooth_collision_cable_stiffG19" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                      <plugin instance="compositecable_stiff" />
+                                                      <body name="cable_stiffB_20" pos="0.0216667 0 0">
+                                                        <joint name="cable_stiffJ_20" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                                        <geom name="cable_stiffG20" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                        <geom name="smooth_collision_cable_stiffG20" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                        <plugin instance="compositecable_stiff" />
+                                                        <body name="cable_stiffB_21" pos="0.0216667 0 0">
+                                                          <joint name="cable_stiffJ_21" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                                          <geom name="cable_stiffG21" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                          <geom name="smooth_collision_cable_stiffG21" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                          <plugin instance="compositecable_stiff" />
+                                                          <body name="cable_stiffB_22" pos="0.0216666 0 0">
+                                                            <joint name="cable_stiffJ_22" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                                            <geom name="cable_stiffG22" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                            <geom name="smooth_collision_cable_stiffG22" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                            <plugin instance="compositecable_stiff" />
+                                                            <body name="cable_stiffB_23" pos="0.0216667 0 0">
+                                                              <joint name="cable_stiffJ_23" pos="0 0 0" type="ball" group="3" stiffness="500" armature="0.01" damping="10" />
+                                                              <geom name="cable_stiffG23" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                              <geom name="smooth_collision_cable_stiffG23" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                              <plugin instance="compositecable_stiff" />
+                                                              <body name="cable_stiffB_24" pos="0.0216666 0 0">
+                                                                <joint name="cable_stiffJ_24" pos="0 0 0" type="ball" group="3" stiffness="8" limited="true" range="0 0.10471975512" armature="0.01" damping="1.6" />
+                                                                <geom name="cable_stiffG24" size="0.00175 0.0108334" pos="0.0108334 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                                <geom name="smooth_collision_cable_stiffG24" size="0.00175 0.0108334" pos="0.0108334 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                <plugin instance="compositecable_stiff" />
+                                                                <body name="cable_stiffB_25" pos="0.0216667 0 0">
+                                                                  <joint name="cable_stiffJ_25" pos="0 0 0" type="ball" group="3" stiffness="6" limited="true" range="0 0.13962634016" armature="0.01" damping="1.4" />
+                                                                  <geom name="cable_stiffG25" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                                  <geom name="smooth_collision_cable_stiffG25" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                  <plugin instance="compositecable_stiff" />
+                                                                  <body name="cable_stiffB_26" pos="0.0216666 0 0">
+                                                                    <joint name="cable_stiffJ_26" pos="0 0 0" type="ball" group="3" stiffness="4.5" limited="true" range="0 0.174532925199" armature="0.01" damping="1.2" />
+                                                                    <geom name="cable_stiffG26" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                                    <geom name="smooth_collision_cable_stiffG26" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                    <plugin instance="compositecable_stiff" />
+                                                                    <body name="cable_stiffB_27" pos="0.0216666 0 0">
+                                                                      <joint name="cable_stiffJ_27" pos="0 0 0" type="ball" group="3" stiffness="3" limited="true" range="0 0.209439510239" armature="0.01" damping="1" />
+                                                                      <geom name="cable_stiffG27" size="0.00175 0.0108334" pos="0.0108334 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                                      <geom name="smooth_collision_cable_stiffG27" size="0.00175 0.0108334" pos="0.0108334 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                      <plugin instance="compositecable_stiff" />
+                                                                      <body name="cable_stiffB_28" pos="0.0216667 0 0">
+                                                                        <joint name="cable_stiffJ_28" pos="0 0 0" type="ball" group="3" stiffness="2" limited="true" range="0 0.261799387799" armature="0.01" damping="0.8" />
+                                                                        <geom name="cable_stiffG28" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                                        <geom name="smooth_collision_cable_stiffG28" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="1" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                        <plugin instance="compositecable_stiff" />
+                                                                        <body name="cable_stiffB_last" pos="0.0216666 0 0">
+                                                                          <joint name="cable_stiffJ_last" pos="0 0 0" type="ball" group="3" stiffness="1" limited="true" range="0 0.314159265359" armature="0.01" damping="0.6" />
+                                                                          <geom name="cable_stiffG29" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.0004" solimp="0.9999 0.9999 0.0001" margin="0.0003" mass="0.0001" rgba="0.8 0.2 0.1 1" />
+                                                                          <geom name="smooth_collision_cable_stiffG29" size="0.00175 0.0108333" pos="0.0108333 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="0" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                          <site name="cable_stiffS_last" pos="0.0216666 0 0" group="3" />
+                                                                          <plugin instance="compositecable_stiff" />
+                                                                          <body name="active_tdcr_base" pos="0.0216666 0 0">
+                                                                            <geom name="base_disk" size="0.0018 5e-05" pos="-5e-05 0 0" quat="0.707107 0 0.707107 0" type="cylinder" contype="0" conaffinity="0" mass="0" rgba="0.15 0.18 0.22 1" />
+                                                                            <geom name="section_1_element_0" size="0.00175 0.0004375" pos="0.0004375 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="2.43349e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                            <geom name="smooth_collision_section_1_element_0" size="0.00175 0.0004375" pos="0.0004375 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="0" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                            <site name="base_frame" pos="0 0 0" size="0.00012" rgba="0 0.8 1 1" />
+                                                                            <site name="measurement_kp_0" pos="0 0 0" size="0.00022" group="5" rgba="1 0.85 0.05 0.9" />
+                                                                            <site name="wire_1_base" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                            <site name="wire_2_base" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                            <site name="wire_3_base" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                            <site name="wire_4_base" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                            <site name="wire_5_base" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                            <site name="wire_6_base" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                            <geom name="splice_passive_collision" type="capsule" fromto="-0.0216666 0 0 -0.0035 0 0" size="0.00165" contype="0" conaffinity="0" condim="1" friction="0 0 0" solref="0.002 1" solimp="0.95 0.99 0.001" margin="0.00015" mass="0" group="5" rgba="0.1 0.8 1 0.08" />
+                                                                            <geom name="splice_collision_fairing" type="capsule" fromto="-0.0045 0 0 0.002625 0 0" size="0.00145" contype="0" conaffinity="0" condim="1" friction="0 0 0" solref="0.002 1" solimp="0.95 0.99 0.001" margin="0.0001" mass="0" group="5" rgba="0.1 0.8 1 0.12" />
+                                                                            <body name="section_1_joint_body_0" pos="0.000875 0 0">
+                                                                              <joint name="section_1_joint_0_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                              <joint name="section_1_joint_0_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                              <geom name="section_1_element_1" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                              <geom name="smooth_collision_section_1_element_1" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="0" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                              <site name="wire_1_section_1_joint_0" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                              <site name="wire_2_section_1_joint_0" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                              <site name="wire_3_section_1_joint_0" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                              <site name="wire_4_section_1_joint_0" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                              <site name="wire_5_section_1_joint_0" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                              <site name="wire_6_section_1_joint_0" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                              <body name="section_1_joint_body_1" pos="0.00175 0 0">
+                                                                                <joint name="section_1_joint_1_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                <joint name="section_1_joint_1_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                <geom name="section_1_element_2" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                <geom name="smooth_collision_section_1_element_2" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                <site name="wire_1_section_1_joint_1" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                <site name="wire_2_section_1_joint_1" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                <site name="wire_3_section_1_joint_1" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                <site name="wire_4_section_1_joint_1" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                <site name="wire_5_section_1_joint_1" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                <site name="wire_6_section_1_joint_1" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                <body name="section_1_joint_body_2" pos="0.00175 0 0">
+                                                                                  <joint name="section_1_joint_2_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                  <joint name="section_1_joint_2_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                  <geom name="section_1_element_3" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                  <geom name="smooth_collision_section_1_element_3" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                  <site name="wire_1_section_1_joint_2" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                  <site name="wire_2_section_1_joint_2" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                  <site name="wire_3_section_1_joint_2" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                  <site name="wire_4_section_1_joint_2" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                  <site name="wire_5_section_1_joint_2" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                  <site name="wire_6_section_1_joint_2" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                  <body name="section_1_joint_body_3" pos="0.00175 0 0">
+                                                                                    <joint name="section_1_joint_3_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                    <joint name="section_1_joint_3_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                    <geom name="section_1_element_4" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                    <geom name="smooth_collision_section_1_element_4" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                    <site name="wire_1_section_1_joint_3" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                    <site name="wire_2_section_1_joint_3" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                    <site name="wire_3_section_1_joint_3" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                    <site name="wire_4_section_1_joint_3" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                    <site name="wire_5_section_1_joint_3" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                    <site name="wire_6_section_1_joint_3" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                    <site name="measurement_kp_1" pos="0.000875 0 0" size="0.00022" group="5" rgba="1 0.85 0.05 0.9" />
+                                                                                    <body name="section_1_joint_body_4" pos="0.00175 0 0">
+                                                                                      <joint name="section_1_joint_4_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                      <joint name="section_1_joint_4_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                      <geom name="section_1_element_5" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                      <geom name="smooth_collision_section_1_element_5" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                      <site name="wire_1_section_1_joint_4" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                      <site name="wire_2_section_1_joint_4" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                      <site name="wire_3_section_1_joint_4" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                      <site name="wire_4_section_1_joint_4" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                      <site name="wire_5_section_1_joint_4" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                      <site name="wire_6_section_1_joint_4" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                      <body name="section_1_joint_body_5" pos="0.00175 0 0">
+                                                                                        <joint name="section_1_joint_5_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                        <joint name="section_1_joint_5_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                        <geom name="section_1_element_6" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                        <geom name="smooth_collision_section_1_element_6" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                        <site name="wire_1_section_1_joint_5" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                        <site name="wire_2_section_1_joint_5" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                        <site name="wire_3_section_1_joint_5" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                        <site name="wire_4_section_1_joint_5" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                        <site name="wire_5_section_1_joint_5" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                        <site name="wire_6_section_1_joint_5" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                        <body name="section_1_joint_body_6" pos="0.00175 0 0">
+                                                                                          <joint name="section_1_joint_6_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                          <joint name="section_1_joint_6_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                          <geom name="section_1_element_7" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                          <geom name="smooth_collision_section_1_element_7" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                          <site name="wire_1_section_1_joint_6" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                          <site name="wire_2_section_1_joint_6" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                          <site name="wire_3_section_1_joint_6" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                          <site name="wire_4_section_1_joint_6" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                          <site name="wire_5_section_1_joint_6" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                          <site name="wire_6_section_1_joint_6" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                          <body name="section_1_joint_body_7" pos="0.00175 0 0">
+                                                                                            <joint name="section_1_joint_7_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                            <joint name="section_1_joint_7_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                            <geom name="section_1_element_8" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                            <geom name="smooth_collision_section_1_element_8" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                            <site name="wire_1_section_1_joint_7" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                            <site name="wire_2_section_1_joint_7" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                            <site name="wire_3_section_1_joint_7" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                            <site name="wire_4_section_1_joint_7" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                            <site name="wire_5_section_1_joint_7" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                            <site name="wire_6_section_1_joint_7" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                            <site name="measurement_kp_2" pos="0.000875 0 0" size="0.00022" group="5" rgba="1 0.85 0.05 0.9" />
+                                                                                            <body name="section_1_joint_body_8" pos="0.00175 0 0">
+                                                                                              <joint name="section_1_joint_8_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                              <joint name="section_1_joint_8_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                              <geom name="section_1_element_9" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                              <geom name="smooth_collision_section_1_element_9" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                              <site name="wire_1_section_1_joint_8" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                              <site name="wire_2_section_1_joint_8" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                              <site name="wire_3_section_1_joint_8" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                              <site name="wire_4_section_1_joint_8" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                              <site name="wire_5_section_1_joint_8" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                              <site name="wire_6_section_1_joint_8" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                              <body name="section_1_joint_body_9" pos="0.00175 0 0">
+                                                                                                <joint name="section_1_joint_9_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                <joint name="section_1_joint_9_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                <geom name="section_1_element_10" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                                <geom name="smooth_collision_section_1_element_10" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                <site name="wire_1_section_1_joint_9" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                <site name="wire_2_section_1_joint_9" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                <site name="wire_3_section_1_joint_9" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                <site name="wire_4_section_1_joint_9" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                <site name="wire_5_section_1_joint_9" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                <site name="wire_6_section_1_joint_9" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                <body name="section_1_joint_body_10" pos="0.00175 0 0">
+                                                                                                  <joint name="section_1_joint_10_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                  <joint name="section_1_joint_10_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                  <geom name="section_1_element_11" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                                  <geom name="smooth_collision_section_1_element_11" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="0" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                  <site name="wire_1_section_1_joint_10" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                  <site name="wire_2_section_1_joint_10" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                  <site name="wire_3_section_1_joint_10" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                  <site name="wire_4_section_1_joint_10" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                  <site name="wire_5_section_1_joint_10" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                  <site name="wire_6_section_1_joint_10" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                  <body name="section_1_joint_body_11" pos="0.00175 0 0">
+                                                                                                    <joint name="section_1_joint_11_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                    <joint name="section_1_joint_11_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                    <geom name="section_1_element_12" size="0.00175 0.0004375" pos="0.0004375 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="2.43349e-05" rgba="0.25 0.55 0.9 0.72" />
+                                                                                                    <geom name="smooth_collision_section_1_element_12" size="0.00175 0.0004375" pos="0.0004375 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="0" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                    <site name="wire_1_section_1_joint_11" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                    <site name="wire_2_section_1_joint_11" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                    <site name="wire_3_section_1_joint_11" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                    <site name="wire_4_section_1_joint_11" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                    <site name="wire_5_section_1_joint_11" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                    <site name="wire_6_section_1_joint_11" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                    <body name="seg2_body" pos="0.000875 0 0">
+                                                                                                      <geom name="inter_section_rigid" size="0.00203 0.003" pos="0.003 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" mass="0" rgba="0.22 0.25 0.3 1" />
+                                                                                                      <geom name="inter_section_rigid_collision" size="0.00175 0.003" pos="0.003 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="0" conaffinity="0" condim="1" group="5" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="0" rgba="0.22 0.25 0.3 0" />
+                                                                                                      <geom name="section_interface_collision_fairing" size="0.00155 0.005625" pos="0.003 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.2 0.9 0.6 0.1" />
+                                                                                                      <site name="interface_center" pos="0 0 0" size="0.00015" rgba="0 1 0 1" />
+                                                                                                      <site name="measurement_kp_3" pos="0 0 0" size="0.00022" group="5" rgba="1 0.85 0.05 0.9" />
+                                                                                                      <site name="wire_1_interface_inlet" pos="0 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                      <site name="wire_2_interface_inlet" pos="0 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                      <site name="wire_3_interface_inlet" pos="0 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                      <site name="wire_4_interface_inlet" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                      <site name="wire_5_interface_inlet" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                      <site name="wire_6_interface_inlet" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                      <site name="wire_1_interface" pos="0.006 0.00154 0" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                      <site name="wire_2_interface" pos="0.006 -0.00077 0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                      <site name="wire_3_interface" pos="0.006 -0.00077 -0.00133368" size="7.5e-05" group="3" rgba="1 0 0.9 1" />
+                                                                                                      <site name="wire_4_interface" pos="0.006 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                      <site name="wire_5_interface" pos="0.006 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                      <site name="wire_6_interface" pos="0.006 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                      <site name="s1" pos="0 0.00154 0" size="7.5e-05" rgba="1 0 0 1" />
+                                                                                                      <site name="s3" pos="0 -0.00077 0.00133368" size="7.5e-05" rgba="1 0 0 1" />
+                                                                                                      <site name="s5" pos="0 -0.00077 -0.00133368" size="7.5e-05" rgba="1 0 0 1" />
+                                                                                                      <body name="section_2_mount" pos="0.006 0 0">
+                                                                                                        <geom name="section_2_element_0" size="0.00175 0.0004375" pos="0.0004375 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="2.43349e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                        <geom name="smooth_collision_section_2_element_0" size="0.00175 0.0004375" pos="0.0004375 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="0" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                        <body name="section_2_joint_body_0" pos="0.000875 0 0">
+                                                                                                          <joint name="section_2_joint_0_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                          <joint name="section_2_joint_0_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                          <geom name="section_2_element_1" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                          <geom name="smooth_collision_section_2_element_1" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="0" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                          <site name="wire_4_section_2_joint_0" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                          <site name="wire_5_section_2_joint_0" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                          <site name="wire_6_section_2_joint_0" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                          <body name="section_2_joint_body_1" pos="0.00175 0 0">
+                                                                                                            <joint name="section_2_joint_1_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                            <joint name="section_2_joint_1_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                            <geom name="section_2_element_2" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                            <geom name="smooth_collision_section_2_element_2" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                            <site name="wire_4_section_2_joint_1" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                            <site name="wire_5_section_2_joint_1" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                            <site name="wire_6_section_2_joint_1" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                            <body name="section_2_joint_body_2" pos="0.00175 0 0">
+                                                                                                              <joint name="section_2_joint_2_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                              <joint name="section_2_joint_2_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                              <geom name="section_2_element_3" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                              <geom name="smooth_collision_section_2_element_3" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                              <site name="wire_4_section_2_joint_2" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                              <site name="wire_5_section_2_joint_2" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                              <site name="wire_6_section_2_joint_2" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                              <body name="section_2_joint_body_3" pos="0.00175 0 0">
+                                                                                                                <joint name="section_2_joint_3_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                <joint name="section_2_joint_3_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                <geom name="section_2_element_4" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                <geom name="smooth_collision_section_2_element_4" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                <site name="wire_4_section_2_joint_3" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                <site name="wire_5_section_2_joint_3" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                <site name="wire_6_section_2_joint_3" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                <site name="measurement_kp_4" pos="0.000875 0 0" size="0.00022" group="5" rgba="1 0.85 0.05 0.9" />
+                                                                                                                <body name="section_2_joint_body_4" pos="0.00175 0 0">
+                                                                                                                  <joint name="section_2_joint_4_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                  <joint name="section_2_joint_4_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                  <geom name="section_2_element_5" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                  <geom name="smooth_collision_section_2_element_5" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                  <site name="wire_4_section_2_joint_4" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                  <site name="wire_5_section_2_joint_4" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                  <site name="wire_6_section_2_joint_4" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                  <body name="section_2_joint_body_5" pos="0.00175 0 0">
+                                                                                                                    <joint name="section_2_joint_5_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                    <joint name="section_2_joint_5_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                    <geom name="section_2_element_6" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                    <geom name="smooth_collision_section_2_element_6" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                    <site name="wire_4_section_2_joint_5" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                    <site name="wire_5_section_2_joint_5" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                    <site name="wire_6_section_2_joint_5" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                    <body name="section_2_joint_body_6" pos="0.00175 0 0">
+                                                                                                                      <joint name="section_2_joint_6_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                      <joint name="section_2_joint_6_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                      <geom name="section_2_element_7" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                      <geom name="smooth_collision_section_2_element_7" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                      <site name="wire_4_section_2_joint_6" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                      <site name="wire_5_section_2_joint_6" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                      <site name="wire_6_section_2_joint_6" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                      <body name="section_2_joint_body_7" pos="0.00175 0 0">
+                                                                                                                        <joint name="section_2_joint_7_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                        <joint name="section_2_joint_7_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                        <geom name="section_2_element_8" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                        <geom name="smooth_collision_section_2_element_8" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                        <site name="wire_4_section_2_joint_7" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                        <site name="wire_5_section_2_joint_7" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                        <site name="wire_6_section_2_joint_7" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                        <site name="measurement_kp_5" pos="0.000875 0 0" size="0.00022" group="5" rgba="1 0.85 0.05 0.9" />
+                                                                                                                        <body name="section_2_joint_body_8" pos="0.00175 0 0">
+                                                                                                                          <joint name="section_2_joint_8_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                          <joint name="section_2_joint_8_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                          <geom name="section_2_element_9" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                          <geom name="smooth_collision_section_2_element_9" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                          <site name="wire_4_section_2_joint_8" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                          <site name="wire_5_section_2_joint_8" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                          <site name="wire_6_section_2_joint_8" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                          <body name="section_2_joint_body_9" pos="0.00175 0 0">
+                                                                                                                            <joint name="section_2_joint_9_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                            <joint name="section_2_joint_9_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                            <geom name="section_2_element_10" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                            <geom name="smooth_collision_section_2_element_10" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                            <site name="wire_4_section_2_joint_9" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                            <site name="wire_5_section_2_joint_9" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                            <site name="wire_6_section_2_joint_9" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                            <body name="section_2_joint_body_10" pos="0.00175 0 0">
+                                                                                                                              <joint name="section_2_joint_10_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                              <joint name="section_2_joint_10_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                              <geom name="section_2_element_11" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="4.86698e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                              <geom name="smooth_collision_section_2_element_11" size="0.00175 0.000875" pos="0.000875 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                              <site name="wire_4_section_2_joint_10" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                              <site name="wire_5_section_2_joint_10" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                              <site name="wire_6_section_2_joint_10" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                              <body name="section_2_joint_body_11" pos="0.00175 0 0">
+                                                                                                                                <joint name="section_2_joint_11_y" pos="0 0 0" axis="0 1 0" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                                <joint name="section_2_joint_11_z" pos="0 0 0" axis="0 0 1" stiffness="0.0585486" limited="true" range="-0.35 0.35" armature="1e-10" damping="0.006" />
+                                                                                                                                <geom name="section_2_element_12" size="0.00175 0.0004375" pos="0.0004375 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" condim="1" friction="0.3 0.001" solref="0.005 2" margin="5e-05" mass="2.43349e-05" rgba="0.25 0.82 0.52 0.72" />
+                                                                                                                                <geom name="smooth_collision_section_2_element_12" size="0.00175 0.0004375" pos="0.0004375 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.1 0.8 1 0" />
+                                                                                                                                <site name="wire_4_section_2_joint_11" pos="0 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                                <site name="wire_5_section_2_joint_11" pos="0 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                                <site name="wire_6_section_2_joint_11" pos="0 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                                <body name="distal_tip_rigid" pos="0.000875 0 0">
+                                                                                                                                  <geom name="distal_tip_rigid" size="0.00203 0.003" pos="0.003 0 0" quat="0.707107 0 -0.707107 0" type="cylinder" contype="0" conaffinity="0" mass="0" rgba="0.22 0.25 0.3 1" />
+                                                                                                                                  <geom name="distal_tip_rigid_collision" size="0.00175 0.003" pos="0.003 0 0" quat="0.707107 0 -0.707107 0" type="capsule" contype="1" conaffinity="0" condim="1" group="5" friction="0 0 0" solref="0.002" solimp="0.95 0.99" margin="0.00015" mass="0" rgba="0.22 0.25 0.3 0" />
+                                                                                                                                  <site name="measurement_kp_6" pos="0 0 0" size="0.00022" group="5" rgba="1 0.85 0.05 0.9" />
+                                                                                                                                  <site name="tip_center" pos="0.006 0 0" size="0.00018" rgba="1 0.2 0.1 1" />
+                                                                                                                                  <site name="wire_4_tip" pos="0.006 0.00077 0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                                  <site name="wire_5_tip" pos="0.006 -0.00154 0" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                                  <site name="wire_6_tip" pos="0.006 0.00077 -0.00133368" size="7.5e-05" group="3" rgba="0.95 0.35 0.05 1" />
+                                                                                                                                  <body name="end_6" pos="0.006 0 0">
+                                                                                                                                    <geom name="end_6_mass_geom" size="1e-05" contype="0" conaffinity="0" mass="0" rgba="0 0 0 0" />
+                                                                                                                                    <site name="seg2_S_last" pos="0 0 0" size="0.0001" rgba="0 0 0 0" />
+                                                                                                                                    <site name="s2" pos="0 0.00077 0.00133368" size="7.5e-05" rgba="1 0.35 0 1" />
+                                                                                                                                    <site name="s4" pos="0 -0.00154 0" size="7.5e-05" rgba="1 0.35 0 1" />
+                                                                                                                                    <site name="s6" pos="0 0.00077 -0.00133368" size="7.5e-05" rgba="1 0.35 0 1" />
+                                                                                                                                    <camera name="tip_camera" pos="0.004 0 0" quat="0.5 0.5 -0.5 -0.5" fovy="70" />
+                                                                                                                                  </body>
+                                                                                                                                </body>
+                                                                                                                              </body>
+                                                                                                                            </body>
+                                                                                                                          </body>
+                                                                                                                        </body>
+                                                                                                                      </body>
+                                                                                                                    </body>
+                                                                                                                  </body>
+                                                                                                                </body>
+                                                                                                              </body>
+                                                                                                            </body>
+                                                                                                          </body>
+                                                                                                        </body>
+                                                                                                      </body>
+                                                                                                    </body>
+                                                                                                  </body>
+                                                                                                </body>
+                                                                                              </body>
+                                                                                            </body>
+                                                                                          </body>
+                                                                                        </body>
+                                                                                      </body>
+                                                                                    </body>
+                                                                                  </body>
+                                                                                </body>
+                                                                              </body>
+                                                                            </body>
+                                                                          </body>
+                                                                        </body>
+                                                                      </body>
+                                                                    </body>
+                                                                  </body>
+                                                                </body>
+                                                              </body>
+                                                            </body>
+                                                          </body>
+                                                        </body>
+                                                      </body>
+                                                    </body>
+                                                  </body>
+                                                </body>
+                                              </body>
+                                            </body>
+                                          </body>
+                                        </body>
+                                      </body>
+                                    </body>
+                                  </body>
+                                </body>
+                              </body>
+                            </body>
+                          </body>
+                        </body>
+                      </body>
+                    </body>
+                  </body>
+                </body>
               </body>
-              
-              </body>
+            </body>
           </body>
+        </body>
       </body>
     </body>
-    
-    <body name="seg1_body" pos="0.0488 0 1.094">
-      <freejoint />
-      <composite prefix="seg1_" type="cable" curve="s" count="10 1 1" size="0.027" initial="none">
-        <plugin plugin="mujoco.elasticity.cable">
-          <config key="twist" value="0.41" />
-          <config key="bend" value="0.55" />
-          <config key="vmax" value=".1" />
-        </plugin>
-        <joint kind="main" damping="0.3" stiffness="3" armature="0.01" />
-        <geom type="cylinder" size=".00175" rgba=".8 .2 .1 1" condim="3" contype="1" mass="0.001" solref="0.001 1" solimp="0.99 0.99 0.01" />
-      </composite>
-    </body>
-      
-    <body name="seg2_body" pos="0.0758 0 1.094">
-        <freejoint />
-        <geom name="connector_geom" type="sphere" size="0.0005" mass="0.001" rgba="0 1 0 0.8" contype="0" conaffinity="0" />
-        
-        <site name="s1" pos="0 0.001750 0.000000" size="0.0005" rgba="1 0 0 1" /> 
-        <site name="s3" pos="0 -0.000875 0.001516" size="0.0005" rgba="0 1 0 1" /> 
-        <site name="s5" pos="0 -0.000875 -0.001516" size="0.0005" rgba="0 0 1 1" /> 
-
-        <composite prefix="seg2_" type="cable" curve="s" count="10 1 1" size="0.027" initial="none">
-            <plugin plugin="mujoco.elasticity.cable">
-            <config key="twist" value="0.41" />
-            <config key="bend" value="0.55" />
-            <config key="vmax" value=".1" />
-            </plugin>
-            <joint kind="main" damping="0.3" stiffness="3" armature="0.01" />
-            <geom type="cylinder" size=".00175" rgba=".8 .2 .1 1" condim="3" contype="1" mass="0.001" solref="0.001 1" solimp="0.99 0.99 0.01" />
-        </composite>
-    </body>
-
-    <body name="slider" pos="0.1028 0 1.094">
-      <joint type="free" name="slider_joint" /> 
-      <geom size=".001" mass="0.001" rgba="0 0 0 0" contype="0" conaffinity="0" />
-      
-      <!-- Place the camera 4 mm in front of the distal tip; local -Z looks along +X. -->
-      <camera name="tip_camera" pos="0.004 0 0" euler="1.57 -1.57 0" fovy="20"/>
-
-      <body name="end_6" pos="0 0 0">
-        <geom name="end_6_mass_geom" type="sphere" size="1e-5" mass="1e-6" rgba="0 0 0 0" contype="0" conaffinity="0" />
-          <site name="s2" pos="0 0.000875 0.001516" size="0.0005" rgba="1 1 0 1" /> 
-          <site name="s4" pos="0 -0.001750 0.000000" size="0.0005" rgba="0 1 1 1" /> 
-          <site name="s6" pos="0 0.000875 -0.001516" size="0.0005" rgba="1 0 1 1" />
-      </body>
-    </body>
-
-    <body name="front_object_table" pos="0 0 0" euler="0 0 0">
-      <geom name="front_object_table" size="1.0 0.7 0.4" pos="0.5 0 0.4" type="box" />
+    <body name="front_object_table">
       <inertial pos="0 0 0" mass="1" diaginertia="0 0 0" />
-
-      <body name="camera" pos="0.8 0.0 1.2">
-          <camera name="agentview" pos="0 0 0" xyaxes="0 1 0  -0.5 0 0.707" fovy="60" />
+      <geom name="front_object_table" size="1 0.7 0.4" pos="0.5 0 0.4" type="box" />
+      <body name="camera" pos="0.8 0 1.2">
+        <camera name="agentview" pos="0 0 0" quat="0.627975 0.325035 0.325035 0.627975" fovy="60" />
       </body>
-      <body name="camera2" pos="0.5 0.0 1.8">
-          <camera name="topview" pos="0 0 0" xyaxes="0 -1 0 1 0 0" fovy="90" />
+      <body name="camera2" pos="0.5 0 1.8">
+        <camera name="topview" pos="0 0 0" quat="0.707107 0 0 -0.707107" fovy="90" />
       </body>
       <body name="camera3" pos="0.3 -0.7 1.3">
-          <camera name="sideview" pos="0 0 0" xyaxes="1 0 0 0 0 1" fovy="90" />
+        <camera name="sideview" pos="0 0 0" quat="0.707107 0.707107 0 0" fovy="90" />
       </body>
     </body>
   </worldbody>
-
-  <equality>
-    <weld name="right_boundary1" 
-      body1="seg1_B_first" 
-      body2="cable_stiffB_last" 
-      solref="0.004 1" 
-      solimp="0.99 0.999 0.001" 
-      torquescale="10" />
-
-    <weld name="mid_joint" body1="seg1_B_last" body2="seg2_body" anchor="0 0 0" solimp="0.99 1.0 0.0001" solref="0.001 1.0" />
-
-    <weld name="right_boundary" body1="seg2_B_last" body2="slider" anchor="0 0 0" solimp="0.99 1.0 0.0001" solref="0.001 1.0" />  
-
-    <weld name="weld_end6" body1="end_6" body2="seg2_B_last" anchor="0 0 0" solimp="0.99 1.0 0.0001" solref="0.001 1.0" />
-  </equality>
-
   <contact>
-    <exclude body1="seg2_B_last" body2="slider" />
-    <exclude body1="seg1_B_last" body2="seg2_body" />
-    <exclude body1="seg1_B_last" body2="seg2_B_first" />
+    <exclude body1="cable_stiffB_first" body2="cable_stiffB_1" />
+    <exclude body1="cable_stiffB_1" body2="cable_stiffB_2" />
+    <exclude body1="cable_stiffB_2" body2="cable_stiffB_3" />
+    <exclude body1="cable_stiffB_3" body2="cable_stiffB_4" />
+    <exclude body1="cable_stiffB_4" body2="cable_stiffB_5" />
+    <exclude body1="cable_stiffB_5" body2="cable_stiffB_6" />
+    <exclude body1="cable_stiffB_6" body2="cable_stiffB_7" />
+    <exclude body1="cable_stiffB_7" body2="cable_stiffB_8" />
+    <exclude body1="cable_stiffB_8" body2="cable_stiffB_9" />
+    <exclude body1="cable_stiffB_9" body2="cable_stiffB_10" />
+    <exclude body1="cable_stiffB_10" body2="cable_stiffB_11" />
+    <exclude body1="cable_stiffB_11" body2="cable_stiffB_12" />
+    <exclude body1="cable_stiffB_12" body2="cable_stiffB_13" />
+    <exclude body1="cable_stiffB_13" body2="cable_stiffB_14" />
+    <exclude body1="cable_stiffB_14" body2="cable_stiffB_15" />
+    <exclude body1="cable_stiffB_15" body2="cable_stiffB_16" />
+    <exclude body1="cable_stiffB_16" body2="cable_stiffB_17" />
+    <exclude body1="cable_stiffB_17" body2="cable_stiffB_18" />
+    <exclude body1="cable_stiffB_18" body2="cable_stiffB_19" />
+    <exclude body1="cable_stiffB_19" body2="cable_stiffB_20" />
+    <exclude body1="cable_stiffB_20" body2="cable_stiffB_21" />
+    <exclude body1="cable_stiffB_21" body2="cable_stiffB_22" />
+    <exclude body1="cable_stiffB_22" body2="cable_stiffB_23" />
+    <exclude body1="cable_stiffB_23" body2="cable_stiffB_24" />
+    <exclude body1="cable_stiffB_24" body2="cable_stiffB_25" />
+    <exclude body1="cable_stiffB_25" body2="cable_stiffB_26" />
+    <exclude body1="cable_stiffB_26" body2="cable_stiffB_27" />
+    <exclude body1="cable_stiffB_27" body2="cable_stiffB_28" />
   </contact>
-
+  <tendon>
+    <spatial name="tendon1" width="8.625e-05" rgba="1 0 0.9 1">
+      <site site="wire_1_base" />
+      <site site="wire_1_section_1_joint_0" />
+      <site site="wire_1_section_1_joint_1" />
+      <site site="wire_1_section_1_joint_2" />
+      <site site="wire_1_section_1_joint_3" />
+      <site site="wire_1_section_1_joint_4" />
+      <site site="wire_1_section_1_joint_5" />
+      <site site="wire_1_section_1_joint_6" />
+      <site site="wire_1_section_1_joint_7" />
+      <site site="wire_1_section_1_joint_8" />
+      <site site="wire_1_section_1_joint_9" />
+      <site site="wire_1_section_1_joint_10" />
+      <site site="wire_1_section_1_joint_11" />
+      <site site="wire_1_interface_inlet" />
+      <site site="wire_1_interface" />
+    </spatial>
+    <spatial name="tendon2" width="8.625e-05" rgba="1 0 0.9 1">
+      <site site="wire_2_base" />
+      <site site="wire_2_section_1_joint_0" />
+      <site site="wire_2_section_1_joint_1" />
+      <site site="wire_2_section_1_joint_2" />
+      <site site="wire_2_section_1_joint_3" />
+      <site site="wire_2_section_1_joint_4" />
+      <site site="wire_2_section_1_joint_5" />
+      <site site="wire_2_section_1_joint_6" />
+      <site site="wire_2_section_1_joint_7" />
+      <site site="wire_2_section_1_joint_8" />
+      <site site="wire_2_section_1_joint_9" />
+      <site site="wire_2_section_1_joint_10" />
+      <site site="wire_2_section_1_joint_11" />
+      <site site="wire_2_interface_inlet" />
+      <site site="wire_2_interface" />
+    </spatial>
+    <spatial name="tendon3" width="8.625e-05" rgba="1 0 0.9 1">
+      <site site="wire_3_base" />
+      <site site="wire_3_section_1_joint_0" />
+      <site site="wire_3_section_1_joint_1" />
+      <site site="wire_3_section_1_joint_2" />
+      <site site="wire_3_section_1_joint_3" />
+      <site site="wire_3_section_1_joint_4" />
+      <site site="wire_3_section_1_joint_5" />
+      <site site="wire_3_section_1_joint_6" />
+      <site site="wire_3_section_1_joint_7" />
+      <site site="wire_3_section_1_joint_8" />
+      <site site="wire_3_section_1_joint_9" />
+      <site site="wire_3_section_1_joint_10" />
+      <site site="wire_3_section_1_joint_11" />
+      <site site="wire_3_interface_inlet" />
+      <site site="wire_3_interface" />
+    </spatial>
+    <spatial name="tendon4" width="8.625e-05" rgba="0.95 0.35 0.05 1">
+      <site site="wire_4_base" />
+      <site site="wire_4_section_1_joint_0" />
+      <site site="wire_4_section_1_joint_1" />
+      <site site="wire_4_section_1_joint_2" />
+      <site site="wire_4_section_1_joint_3" />
+      <site site="wire_4_section_1_joint_4" />
+      <site site="wire_4_section_1_joint_5" />
+      <site site="wire_4_section_1_joint_6" />
+      <site site="wire_4_section_1_joint_7" />
+      <site site="wire_4_section_1_joint_8" />
+      <site site="wire_4_section_1_joint_9" />
+      <site site="wire_4_section_1_joint_10" />
+      <site site="wire_4_section_1_joint_11" />
+      <site site="wire_4_interface_inlet" />
+      <site site="wire_4_interface" />
+      <site site="wire_4_section_2_joint_0" />
+      <site site="wire_4_section_2_joint_1" />
+      <site site="wire_4_section_2_joint_2" />
+      <site site="wire_4_section_2_joint_3" />
+      <site site="wire_4_section_2_joint_4" />
+      <site site="wire_4_section_2_joint_5" />
+      <site site="wire_4_section_2_joint_6" />
+      <site site="wire_4_section_2_joint_7" />
+      <site site="wire_4_section_2_joint_8" />
+      <site site="wire_4_section_2_joint_9" />
+      <site site="wire_4_section_2_joint_10" />
+      <site site="wire_4_section_2_joint_11" />
+      <site site="wire_4_tip" />
+    </spatial>
+    <spatial name="tendon5" width="8.625e-05" rgba="0.95 0.35 0.05 1">
+      <site site="wire_5_base" />
+      <site site="wire_5_section_1_joint_0" />
+      <site site="wire_5_section_1_joint_1" />
+      <site site="wire_5_section_1_joint_2" />
+      <site site="wire_5_section_1_joint_3" />
+      <site site="wire_5_section_1_joint_4" />
+      <site site="wire_5_section_1_joint_5" />
+      <site site="wire_5_section_1_joint_6" />
+      <site site="wire_5_section_1_joint_7" />
+      <site site="wire_5_section_1_joint_8" />
+      <site site="wire_5_section_1_joint_9" />
+      <site site="wire_5_section_1_joint_10" />
+      <site site="wire_5_section_1_joint_11" />
+      <site site="wire_5_interface_inlet" />
+      <site site="wire_5_interface" />
+      <site site="wire_5_section_2_joint_0" />
+      <site site="wire_5_section_2_joint_1" />
+      <site site="wire_5_section_2_joint_2" />
+      <site site="wire_5_section_2_joint_3" />
+      <site site="wire_5_section_2_joint_4" />
+      <site site="wire_5_section_2_joint_5" />
+      <site site="wire_5_section_2_joint_6" />
+      <site site="wire_5_section_2_joint_7" />
+      <site site="wire_5_section_2_joint_8" />
+      <site site="wire_5_section_2_joint_9" />
+      <site site="wire_5_section_2_joint_10" />
+      <site site="wire_5_section_2_joint_11" />
+      <site site="wire_5_tip" />
+    </spatial>
+    <spatial name="tendon6" width="8.625e-05" rgba="0.95 0.35 0.05 1">
+      <site site="wire_6_base" />
+      <site site="wire_6_section_1_joint_0" />
+      <site site="wire_6_section_1_joint_1" />
+      <site site="wire_6_section_1_joint_2" />
+      <site site="wire_6_section_1_joint_3" />
+      <site site="wire_6_section_1_joint_4" />
+      <site site="wire_6_section_1_joint_5" />
+      <site site="wire_6_section_1_joint_6" />
+      <site site="wire_6_section_1_joint_7" />
+      <site site="wire_6_section_1_joint_8" />
+      <site site="wire_6_section_1_joint_9" />
+      <site site="wire_6_section_1_joint_10" />
+      <site site="wire_6_section_1_joint_11" />
+      <site site="wire_6_interface_inlet" />
+      <site site="wire_6_interface" />
+      <site site="wire_6_section_2_joint_0" />
+      <site site="wire_6_section_2_joint_1" />
+      <site site="wire_6_section_2_joint_2" />
+      <site site="wire_6_section_2_joint_3" />
+      <site site="wire_6_section_2_joint_4" />
+      <site site="wire_6_section_2_joint_5" />
+      <site site="wire_6_section_2_joint_6" />
+      <site site="wire_6_section_2_joint_7" />
+      <site site="wire_6_section_2_joint_8" />
+      <site site="wire_6_section_2_joint_9" />
+      <site site="wire_6_section_2_joint_10" />
+      <site site="wire_6_section_2_joint_11" />
+      <site site="wire_6_tip" />
+    </spatial>
+  </tendon>
   <actuator>
-    <position name="act_slid_M" joint="slid_M" kp="100000" ctrlrange="0 0.577" />
-    
-    <motor name="up" site="seg2_S_last" gear="0.03 0 0 0 -0.03 0" ctrlrange="-100 100" />
-    <motor name="right" site="seg2_S_last" gear="0.03 0 0 0 0 -0.03" ctrlrange="-100 100" />
-    
-
-    <motor name="force_s1" site="s1" gear="1 0 0 0 0 0" ctrlrange="-100 100" />
-    <motor name="force_s2" site="s2" gear="1 0 0 0 0 0" ctrlrange="-100 100" />
-    <motor name="force_s3" site="s3" gear="1 0 0 0 0 0" ctrlrange="-100 100" />
-    <motor name="force_s4" site="s4" gear="1 0 0 0 0 0" ctrlrange="-100 100" />
-    <motor name="force_s5" site="s5" gear="1 0 0 0 0 0" ctrlrange="-100 100" />
-    <motor name="force_s6" site="s6" gear="1 0 0 0 0 0" ctrlrange="-100 100" />
+    <general name="act_slid_M" joint="slid_M" ctrlrange="0 0.577" forcelimited="true" forcerange="-250 250" biastype="affine" gainprm="6000" biasprm="0 -6000 -180" />
+    <general name="act_t1" tendon="tendon1" ctrlrange="0.0226895 0.0313005" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />
+    <general name="act_t2" tendon="tendon2" ctrlrange="0.0226895 0.0313005" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />
+    <general name="act_t3" tendon="tendon3" ctrlrange="0.0226895 0.0313005" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />
+    <general name="act_t4" tendon="tendon4" ctrlrange="0.045389 0.062601" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />
+    <general name="act_t5" tendon="tendon5" ctrlrange="0.045389 0.062601" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />
+    <general name="act_t6" tendon="tendon6" ctrlrange="0.045389 0.062601" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />
   </actuator>
-
-  <include file="Bronchial_model.xml" />
-
+  <sensor>
+    <framepos objtype="site" objname="tip_center" name="tip_position" />
+    <framequat objtype="site" objname="tip_center" name="tip_orientation" />
+    <actuatorfrc actuator="act_t1" name="wire_1_force" />
+    <actuatorfrc actuator="act_t2" name="wire_2_force" />
+    <actuatorfrc actuator="act_t3" name="wire_3_force" />
+    <actuatorfrc actuator="act_t4" name="wire_4_force" />
+    <actuatorfrc actuator="act_t5" name="wire_5_force" />
+    <actuatorfrc actuator="act_t6" name="wire_6_force" />
+  </sensor>
+  <keyframe>
+    <key name="home" ctrl="0 0.02699 0.02699 0.02699 0.05399 0.05399 0.05399" />
+  </keyframe>
 </mujoco>

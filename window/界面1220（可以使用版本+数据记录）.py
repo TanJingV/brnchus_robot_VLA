@@ -1,6 +1,12 @@
 import sys
 import os
 import time
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from scipy.spatial import cKDTree
 from queue import Queue, Empty
 from PyQt5 import QtWidgets, QtCore
@@ -10,7 +16,7 @@ from pyvistaqt import QtInteractor
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5 import QtGui
 import torch
-from unet import Unet
+from Visual_information.legacy_segmentation.unet import Unet
 from scipy.spatial.transform import Rotation as R
 import pyvista as pv
 import serial.tools.list_ports
@@ -229,7 +235,7 @@ class SegmentationWorker(QtCore.QObject):
         if self.model is None:
             try:
                 print(f"正在加载模型: {self.weights_path} ...")
-                # 确保你导入了 Unet 类 (from unet import Unet)
+                # Unet is provided by Visual_information.legacy_segmentation.
                 self.model = Unet(3, 1)
                 # 加载权重
                 state = torch.load(self.weights_path, map_location=self.device)
@@ -2493,7 +2499,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.seg_thread = QtCore.QThread(self)
 
         self.seg_worker = SegmentationWorker(
-            weights_path="1205weights_49.pth",
+            weights_path=os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "Visual_information",
+                "models",
+                "legacy_unet",
+                "1205weights_49.pth",
+            ),
             frame_queue=self.seg_queue,  # <--- 传入队列
             img_size=400
         )
