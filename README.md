@@ -65,14 +65,17 @@ release. Existing large legacy segmentation weights are retained at
 ## Website
 
 ```powershell
+python docs/site/build_web_sim.py
 python docs/site/build_assets.py
 python -m http.server 8765 --directory docs/site
 ```
 
-Open http://localhost:8765. The browser explorer displays geometric centerline
-paths; it is not a browser MuJoCo runtime. GitHub Actions publishes `docs/site`
-using the `Project website` workflow. Set Settings > Pages > Source to GitHub
-Actions when enabling the site for the first time.
+Open http://localhost:8765. The first visit downloads MuJoCo WebAssembly,
+Three.js and the high-resolution lung STL. The simulation-only web build
+contains the project two-section tendon model, dual compass controls, insertion
+actuator, tip camera, lung visibility control, pause and reset. Hardware drivers
+and real sensors remain in the desktop application. GitHub Pages deploys only
+`docs/site` through `.github/workflows/project-pages.yml`.
 
 ## Acknowledgements
 
