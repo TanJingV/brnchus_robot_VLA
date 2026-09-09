@@ -156,21 +156,6 @@ h1 { margin: 24px 0 17px; font: 600 clamp(42px, 6.2vw, 73px)/1.04 "Iowan Old Sty
 .contribution-grid article > b { color: var(--blue); font: 700 11px "SFMono-Regular", Consolas, monospace; }
 .contribution-grid h3 { margin: 13px 0 8px; font-size: 16px; }
 .contribution-grid p { margin: 0; color: #647188; font-size: 13px; }
-.explorer { display: grid; grid-template-columns: minmax(0, 1fr) 270px; overflow: hidden; margin-top: 30px; border: 1px solid #d9e0eb; border-radius: 13px; background: #f3f6fb; }
-.path-stage { position: relative; height: 470px; background: radial-gradient(circle, #eff6fc, #e5ebf5); }
-.path-stage canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
-.path-stage > span { position: absolute; top: 18px; left: 20px; color: #587089; font: 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; pointer-events: none; }
-.path-controls { padding: 23px; border-left: 1px solid #d9e0eb; background: #fff; }
-.path-controls label { display: block; margin: 0 0 7px; color: #66758b; font: 700 9px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
-.path-controls select { width: 100%; padding: 9px; border: 1px solid #d1d9e6; border-radius: 7px; background: #fff; color: #2d3b52; }
-.metric { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid #edf0f5; color: #7a879a; font: 9px "SFMono-Regular", Consolas, monospace; }
-.metric b { color: #25354d; font-size: 13px; }
-.path-controls label[for="progress"] { margin-top: 18px; }
-.path-controls output { float: right; color: #2e61bd; }
-.path-controls input { width: 100%; margin-bottom: 16px; accent-color: var(--blue); }
-.path-controls .control-button { width: 100%; border-color: #cdd6e4; color: #34465f; }
-.path-controls p { color: #7b8798; font-size: 10px; }
-.text-link { color: #285ec4; font-size: 12px; font-weight: 650; }
 .model-figure { margin: 32px 0 0; }
 .model-figure img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 13px; background: #fafbfc; }
 .citation-section { text-align: center; }
@@ -207,8 +192,6 @@ footer > a:last-child { text-align: right; }
   .split { display: block; }
   .split > p { max-width: 680px !important; }
   .contribution-grid { grid-template-columns: 1fr; }
-  .explorer { grid-template-columns: 1fr; }
-  .path-controls { border-left: 0; border-top: 1px solid #d9e0eb; }
   footer { grid-template-columns: 1fr; text-align: center; }
   footer > a:last-child { text-align: center; }
 }
@@ -231,7 +214,6 @@ footer > a:last-child { text-align: right; }
   .comp-grid { gap: 8px; }
   .compass-pad { width: min(128px, 100%); }
   .abstract-copy { font-size: 16px; }
-  .path-stage { height: 380px; }
   .citation-links { flex-direction: column; }
   .runtime-note { display: none; }
 }

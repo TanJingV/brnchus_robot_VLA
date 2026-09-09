@@ -22,7 +22,6 @@ not claim validated clinical performance or a published navigation benchmark.
 - Real/simulation environment selection, tip-camera and virtual-camera views.
 - Synchronized camera, MuJoCo and control-panel recordings, with per-frame
   timing and tip, middle-platform and master/slave-connection poses.
-- Complete centerline trajectories for 65 terminal branches, with CSV exports.
 - D435 capture and seven-marker 3D fusion modules in `Visual_information`.
 
 ## Run
@@ -55,8 +54,7 @@ requirements. Optional third-party checkpoints are obtained separately; see
 | `meshes/`, `urdf/` | Robot and airway model assets |
 | `agent_nav/` | Navigation and learning utilities |
 | `Visual_information/` | Capture, segmentation and 3D tracking |
-| `exports/terminal_branches/` | 65-branch centerline CSV exports |
-| `docs/site/` | Static project website and interactive path explorer |
+| `docs/site/` | Static project website and interactive MuJoCo simulation |
 
 Local recordings, environments and Python caches are excluded from the source
 release. Existing large legacy segmentation weights are retained at
