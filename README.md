@@ -8,8 +8,7 @@ multimodal recording.
 
 ## Research status
 
-This project supports an unpublished ICRA-oriented manuscript. The formal
-paper title, authors, abstract and publication link are pending confirmation.
+The formal paper title, authors, abstract and publication link are pending confirmation.
 The website describes implemented capabilities and model geometry; it does
 not claim validated clinical performance or a published navigation benchmark.
 
