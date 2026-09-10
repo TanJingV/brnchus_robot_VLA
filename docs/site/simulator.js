@@ -20,7 +20,12 @@ const MAX_BEND_RAD = THREE.MathUtils.degToRad(160);
 const TENDON_RADIUS = 0.00154;
 const INSERTION_LIMIT_M = 0.577;
 const INSERTION_RATE_MPS = 0.08;
-const INSERTION_LEAD_M = 0.015;
+const FREE_INSERTION_LEAD_M = 0.004;
+const CONTACT_INSERTION_RATE_MPS = 0.025;
+const CONTACT_INSERTION_LEAD_M = 0.0015;
+const MOTOR_HISTORY_SECONDS = 4;
+const MOTOR_SAMPLE_INTERVAL_MS = 40;
+const MOTOR_COLORS = ["#e85bbd", "#ff8a55", "#f2c14e", "#5ed39a", "#4ecdc4", "#5c91ff", "#b07cff"];
 const PASSIVE_GUIDE_FRONT_M = 0.5690000348619164;
 const PASSIVE_GUIDE_OFFSETS_M = [
   -0.0795333, -0.0578666, -0.0361999, -0.0145332, 0.0071335,
@@ -78,6 +83,8 @@ let lungFlexId = -1;
 let lungCollisionMasks = null;
 let lastFrame = performance.now();
 let telemetryDeadline = 0;
+let motorSampleDeadline = 0;
+let motorHistory = [];
 
 function setLoad(percent, title, detail) {
   $("#load-progress").style.width = `${percent}%`;
@@ -384,6 +391,7 @@ function motorVector(vector) {
   if (result.length() > 1) result.normalize();
   result.multiplyScalar(0.5 * magnitude);
   result.x *= -1;
+  result.y *= -1;
   return result;
 }
 
@@ -506,6 +514,7 @@ function resetSimulation() {
   state.insertionCommand = 0;
   distalFeedback.set(0, 0);
   filteredActiveRotation.set(0, 0, 0);
+  motorHistory = [];
   $("#insertion").value = "0";
   $("#insertion-value").textContent = "0.0 mm";
   proximalCompass.set(0, 0);
@@ -601,14 +610,20 @@ function setLungEnabled(enabled) {
   state.lungVisible = enabled;
   lungGroup.visible = enabled;
   if (lungFlexId >= 0 && lungCollisionMasks) {
-    // The visual surface is optional, but the airway wall is an invariant boundary.
-    model.flex_contype[lungFlexId] = lungCollisionMasks.contype;
-    model.flex_conaffinity[lungFlexId] = lungCollisionMasks.conaffinity;
+    model.flex_contype[lungFlexId] = enabled ? lungCollisionMasks.contype : 0;
+    model.flex_conaffinity[lungFlexId] = enabled ? lungCollisionMasks.conaffinity : 0;
   }
   mujoco.mj_forward(model, data);
-  $("#toggle-lung").textContent = `Airway view: ${enabled ? "on" : "off"}`;
+  $("#toggle-lung").textContent = `Airway model: ${enabled ? "on" : "off"}`;
   $("#toggle-lung").classList.toggle("active", enabled);
   $("#toggle-lung").setAttribute("aria-pressed", String(enabled));
+  $("#boundary-status").classList.toggle("disabled", !enabled);
+  $("#boundary-label").textContent = enabled
+    ? "AIRWAY WALL CONSTRAINT ACTIVE"
+    : "AIRWAY MODEL DISABLED";
+  $("#airway-mode-note").innerHTML = enabled
+    ? "<b>Airway boundary enforced</b><br>The visible airway and its reinforced collision boundary are active. Turning the airway off removes both."
+    : "<b>Airway model disabled</b><br>Both the red surface and its collision boundary are removed, leaving the robot unobstructed for inspection.";
 }
 
 function setupControls() {
@@ -683,6 +698,106 @@ function updateTelemetry(now) {
   $("#contacts").textContent = String(data.ncon);
 }
 
+function airwayContactCount() {
+  if (!state.lungVisible || lungFlexId < 0 || data.ncon < 1) return 0;
+  let count = 0;
+  try {
+    for (let index = 0; index < data.ncon; index += 1) {
+      const contact = data.contact.get(index);
+      try {
+        if (contact.flex?.[0] === lungFlexId || contact.flex?.[1] === lungFlexId) count = 1;
+      } finally {
+        contact.delete?.();
+      }
+      if (count) break;
+    }
+  } catch (error) {
+    // Conservative fallback for older WebAssembly bindings without contact.flex.
+    return data.ncon;
+  }
+  return count;
+}
+
+function normalizedMotorSignals() {
+  return actuatorIds.map((actuator, index) => {
+    const lower = model.actuator_ctrlrange[actuator * 2];
+    const upper = model.actuator_ctrlrange[actuator * 2 + 1];
+    if (index < 6) {
+      const baseline = actuatorBaselines[index];
+      const span = Math.max(Math.abs(upper - baseline), Math.abs(lower - baseline), 1e-9);
+      return THREE.MathUtils.clamp((data.ctrl[actuator] - baseline) / span, -1, 1);
+    }
+    return THREE.MathUtils.clamp((data.ctrl[actuator] - lower) / Math.max(upper - lower, 1e-9), 0, 1);
+  });
+}
+
+function drawMotorChart(now) {
+  const canvas = $("#motor-chart");
+  const context = canvas.getContext("2d");
+  const width = Math.max(1, canvas.clientWidth);
+  const height = Math.max(1, canvas.clientHeight);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const pixelWidth = Math.round(width * dpr);
+  const pixelHeight = Math.round(height * dpr);
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.clearRect(0, 0, width, height);
+
+  const left = 24;
+  const right = width - 7;
+  const top = 8;
+  const bottom = height - 16;
+  context.strokeStyle = "rgba(116, 139, 170, 0.18)";
+  context.lineWidth = 1;
+  [-1, -0.5, 0, 0.5, 1].forEach((value) => {
+    const y = top + ((1 - value) / 2) * (bottom - top);
+    context.beginPath();
+    context.moveTo(left, y);
+    context.lineTo(right, y);
+    context.stroke();
+  });
+  context.fillStyle = "#687a93";
+  context.font = '7px "SFMono-Regular", Consolas, monospace';
+  context.textAlign = "right";
+  context.fillText("+1", left - 4, top + 3);
+  context.fillText("0", left - 4, (top + bottom) / 2 + 3);
+  context.fillText("-1", left - 4, bottom + 3);
+
+  if (now >= motorSampleDeadline) {
+    motorSampleDeadline = now + MOTOR_SAMPLE_INTERVAL_MS;
+    motorHistory.push({ timestamp: now / 1000, values: normalizedMotorSignals() });
+  }
+  const latestTime = now / 1000;
+  const windowStart = latestTime - MOTOR_HISTORY_SECONDS;
+  while (motorHistory.length && motorHistory[0].timestamp < windowStart) motorHistory.shift();
+
+  MOTOR_COLORS.forEach((color, motorIndex) => {
+    context.beginPath();
+    context.strokeStyle = color;
+    context.lineWidth = motorIndex === 6 ? 1.7 : 1.35;
+    let started = false;
+    motorHistory.forEach((sample) => {
+      const x = left + ((sample.timestamp - windowStart) / MOTOR_HISTORY_SECONDS) * (right - left);
+      const y = top + ((1 - sample.values[motorIndex]) / 2) * (bottom - top);
+      if (!started) {
+        context.moveTo(x, y);
+        started = true;
+      } else {
+        context.lineTo(x, y);
+      }
+    });
+    if (started) context.stroke();
+  });
+  context.fillStyle = "#586b84";
+  context.textAlign = "left";
+  context.fillText("-4 s", left, height - 4);
+  context.textAlign = "right";
+  context.fillText("now", right, height - 4);
+}
+
 function animate(now) {
   requestAnimationFrame(animate);
   if (!state.ready) return;
@@ -692,7 +807,10 @@ function animate(now) {
     const actualInsertion = insertionQposAddress >= 0
       ? data.qpos[insertionQposAddress]
       : state.insertionCommand;
-    const maximumStep = INSERTION_RATE_MPS * elapsed;
+    const inAirwayContact = airwayContactCount() > 0;
+    const insertionRate = inAirwayContact ? CONTACT_INSERTION_RATE_MPS : INSERTION_RATE_MPS;
+    const insertionLead = inAirwayContact ? CONTACT_INSERTION_LEAD_M : FREE_INSERTION_LEAD_M;
+    const maximumStep = insertionRate * elapsed;
     state.insertionCommand += THREE.MathUtils.clamp(
       state.insertionTarget - state.insertionCommand,
       -maximumStep,
@@ -700,8 +818,8 @@ function animate(now) {
     );
     state.insertionCommand = THREE.MathUtils.clamp(
       state.insertionCommand,
-      Math.max(0, actualInsertion - INSERTION_LEAD_M),
-      Math.min(INSERTION_LIMIT_M, actualInsertion + INSERTION_LEAD_M),
+      Math.max(0, actualInsertion - insertionLead),
+      Math.min(INSERTION_LIMIT_M, actualInsertion + insertionLead),
     );
     applyControls();
     const steps = Math.max(1, Math.min(36, Math.round(elapsed / model.opt.timestep)));
@@ -722,6 +840,7 @@ function animate(now) {
   renderer.render(scene, camera);
   tipRenderer.render(scene, tipCamera);
   updateTelemetry(now);
+  drawMotorChart(now);
 }
 
 async function stageModelFiles() {

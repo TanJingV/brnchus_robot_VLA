@@ -103,6 +103,8 @@ h1 { max-width: 1080px; margin: 24px auto 20px; font: 600 clamp(36px, 5.1vw, 61p
 .scene-badge span { margin-right: 7px; padding: 3px 7px; border-radius: 12px; background: rgba(98, 209, 143, .15); color: #7ee5a7; }
 .boundary-badge { position: absolute; z-index: 3; top: 17px; right: 19px; display: flex; align-items: center; gap: 7px; padding: 5px 9px; border: 1px solid rgba(98, 209, 143, .28); border-radius: 20px; background: rgba(10, 24, 34, .64); color: #93e7b6; font: 700 8px "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; pointer-events: none; }
 .boundary-badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(98, 209, 143, .11); }
+.boundary-badge.disabled { border-color: rgba(255, 138, 85, .3); color: #ffad82; }
+.boundary-badge.disabled i { background: #ff8a55; box-shadow: 0 0 0 4px rgba(255, 138, 85, .11); }
 .view-help { right: 20px; bottom: 18px; color: #8795a9; }
 .load-panel, .scene-error { position: absolute; z-index: 4; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; background: rgba(16, 24, 39, .94); color: #e7edf6; text-align: center; }
 .load-panel > strong, .scene-error > strong { font-size: 18px; }
@@ -145,6 +147,11 @@ h1 { max-width: 1080px; margin: 24px auto 20px; font: 600 clamp(36px, 5.1vw, 61p
 .insertion-control output { color: #dce5f0; }
 .insertion-control input { width: 100%; margin: 16px 0 3px; accent-color: #4f91ff; }
 .range-labels { display: flex; justify-content: space-between; color: #596a82; font: 8px "SFMono-Regular", Consolas, monospace; }
+.motor-card { margin-top: 13px; padding: 12px; border: 1px solid #2e3d54; border-radius: 10px; background: #111a29; }
+#motor-chart { display: block; width: 100%; height: 118px; border-radius: 6px; background: #0d1522; }
+.motor-legend { display: flex; justify-content: space-between; gap: 5px; margin-top: 8px; color: #8593a7; font: 700 8px "SFMono-Regular", Consolas, monospace; }
+.motor-legend span { display: flex; align-items: center; gap: 4px; }
+.motor-legend span::before { width: 7px; height: 2px; border-radius: 2px; background: var(--motor-color); content: ""; }
 .button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
 .control-button { min-height: 37px; padding: 8px 12px; border: 1px solid #41516a; border-radius: 7px; background: transparent; color: #c9d3e1; font-size: 11px; font-weight: 650; cursor: pointer; }
 .control-button:hover:not(:disabled) { border-color: #6d86a7; background: #213047; }

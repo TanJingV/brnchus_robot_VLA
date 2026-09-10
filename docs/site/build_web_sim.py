@@ -44,6 +44,21 @@ def build_model() -> Path:
             if child.tag == "plugin":
                 parent.remove(child)
 
+    # The browser controller can advance much faster than the desktop viewer's
+    # interactive loop. Use a slightly thicker, harder contact shell so a fast
+    # insertion command cannot step through the thin triangulated airway wall.
+    airway = root.find(".//flexcomp[@name='bronchial_wall_nonconvex']")
+    if airway is None:
+        raise RuntimeError("The bronchial collision flex is missing from the source model")
+    airway.set("radius", "0.0015")
+    airway_contact = airway.find("contact")
+    if airway_contact is None:
+        raise RuntimeError("The bronchial collision flex has no contact configuration")
+    airway_contact.set("priority", "20")
+    airway_contact.set("solref", "0.0008 1")
+    airway_contact.set("solimp", "0.99 0.999 0.0001")
+    airway_contact.set("margin", "0.0003")
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     ET.indent(tree, space="  ")
     tree.write(OUTPUT_MODEL, encoding="utf-8", xml_declaration=True)

@@ -33,8 +33,8 @@
     <light pos="30 30 30" dir="0 -0.447214 -0.894427" type="directional" ambient="0.3 0.3 0.3" diffuse="0.5 0.5 0.5" specular="0.5 0.5 0.5" />
     <body name="pipe" pos="0.3138 0.015 1.054" quat="0.707388 0 0 -0.706825">
       <geom name="bronchial_visual" pos="0.0072 -0.004 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" rgba="0.8 0.2 0.2 0.15" mesh="visual_mesh" />
-      <flexcomp name="bronchial_wall_nonconvex" type="mesh" file="part/bronchus_collision_solid_nonconvex.stl" rigid="true" scale="0.001 0.001 0.001" radius="0.001" rgba="0.05 0.85 0.18 0.42" group="4" pos="0.0072 -0.004 0" quat="1 0 0 0">
-        <contact internal="false" selfcollide="none" contype="1" conaffinity="1" priority="10" condim="1" friction="0 0 0" solref="0.002 1" solimp="0.95 0.99 0.001" margin="0.00015" />
+      <flexcomp name="bronchial_wall_nonconvex" type="mesh" file="part/bronchus_collision_solid_nonconvex.stl" rigid="true" scale="0.001 0.001 0.001" radius="0.0015" rgba="0.05 0.85 0.18 0.42" group="4" pos="0.0072 -0.004 0" quat="1 0 0 0">
+        <contact internal="false" selfcollide="none" contype="1" conaffinity="1" priority="20" condim="1" friction="0 0 0" solref="0.0008 1" solimp="0.99 0.999 0.0001" margin="0.0003" />
       </flexcomp>
     </body>
     <body name="base_link" pos="-0.38279 0.00293 1.00064">
