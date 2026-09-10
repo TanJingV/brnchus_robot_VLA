@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <mujoco model="bronchoscope_full_web_simulation">
   <compiler angle="radian" />
-  <option timestep="0.0002" impratio="100" tolerance="1e-09" integrator="implicitfast" iterations="120" />
+  <option timestep="0.005" impratio="100" tolerance="1e-6" integrator="implicitfast" iterations="10" />
   <size nkey="1" />
   <visual>
     <headlight diffuse="0.6 0.6 0.6" />
@@ -32,7 +32,7 @@
     <light pos="30 30 30" dir="0 -0.447214 -0.894427" type="directional" ambient="0.3 0.3 0.3" diffuse="0.5 0.5 0.5" specular="0.5 0.5 0.5" />
     <body name="pipe" pos="0.3138 0.015 1.054" quat="0.707388 0 0 -0.706825">
       <flexcomp name="bronchial_wall_nonconvex" type="mesh" file="part/bronchus_collision_solid_nonconvex.stl" rigid="true" scale="0.001 0.001 0.001" radius="0.0015" rgba="0.05 0.85 0.18 0.42" group="4" pos="0.0072 -0.004 0" quat="1 0 0 0">
-        <contact internal="false" selfcollide="none" contype="1" conaffinity="1" priority="20" condim="1" friction="0 0 0" solref="0.0008 1" solimp="0.99 0.999 0.0001" margin="0.0003" />
+        <contact internal="false" selfcollide="none" contype="1" conaffinity="1" priority="20" condim="1" friction="0 0 0" solref="0.020 3" solimp="0.92 0.995 0.001" margin="0.00035" />
       </flexcomp>
     </body>
     <body name="base_link" pos="-0.38279 0.00293 1.00064">
@@ -714,7 +714,7 @@
     </spatial>
   </tendon>
   <actuator>
-    <general name="act_slid_M" joint="slid_M" ctrlrange="0 0.577" forcelimited="true" forcerange="-250 250" biastype="affine" gainprm="6000" biasprm="0 -6000 -180" />
+    <general name="act_slid_M" joint="slid_M" ctrlrange="0 0.577" forcelimited="true" forcerange="-500 500" biastype="affine" gainprm="25000" biasprm="0 -25000 -220" />
     <general name="act_t1" tendon="tendon1" ctrlrange="0.0226895 0.0313005" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />
     <general name="act_t2" tendon="tendon2" ctrlrange="0.0226895 0.0313005" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />
     <general name="act_t3" tendon="tendon3" ctrlrange="0.0226895 0.0313005" forcelimited="true" forcerange="-15 0" biastype="affine" gainprm="30000" biasprm="0 -30000 -0.5" />

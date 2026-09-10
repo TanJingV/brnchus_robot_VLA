@@ -4,7 +4,7 @@ import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import loadMujoco from "https://cdn.jsdelivr.net/npm/mujoco-js@0.0.7/dist/mujoco_wasm.js";
 
 const $ = (selector) => document.querySelector(selector);
-const ASSET_VERSION = "8";
+const ASSET_VERSION = "16";
 const MODEL_URL = `sim/bronchoscope_web.xml?v=${ASSET_VERSION}`;
 const LUNG_URL = `sim/part/bronchus.stl?v=${ASSET_VERSION}`;
 const MODEL_ASSETS = [
@@ -19,10 +19,11 @@ const MODEL_ASSETS = [
 const MAX_BEND_RAD = THREE.MathUtils.degToRad(160);
 const TENDON_RADIUS = 0.00154;
 const INSERTION_LIMIT_M = 0.577;
-const INSERTION_RATE_MPS = 0.08;
-const FREE_INSERTION_LEAD_M = 0.004;
-const CONTACT_INSERTION_RATE_MPS = 0.025;
+const INSERTION_RATE_MPS = 0.20;
+const FREE_INSERTION_LEAD_M = 0.008;
+const CONTACT_INSERTION_RATE_MPS = 0.20;
 const CONTACT_INSERTION_LEAD_M = 0.0015;
+const CONTACT_VELOCITY_DAMPING_PER_S = 16;
 const MOTOR_HISTORY_SECONDS = 4;
 const MOTOR_SAMPLE_INTERVAL_MS = 40;
 const MOTOR_COLORS = ["#e85bbd", "#ff8a55", "#f2c14e", "#5ed39a", "#4ecdc4", "#5c91ff", "#b07cff"];
@@ -71,6 +72,7 @@ let orbit;
 let tipSiteId = -1;
 let interfaceSiteId = -1;
 let insertionQposAddress = -1;
+let insertionDofAddress = -1;
 let actuatorIds = [];
 let actuatorBaselines = [];
 let distalFeedback = new THREE.Vector2();
@@ -85,6 +87,7 @@ let lastFrame = performance.now();
 let telemetryDeadline = 0;
 let motorSampleDeadline = 0;
 let motorHistory = [];
+let nonAirwayContactBaseline = 0;
 
 function setLoad(percent, title, detail) {
   $("#load-progress").style.width = `${percent}%`;
@@ -699,23 +702,8 @@ function updateTelemetry(now) {
 }
 
 function airwayContactCount() {
-  if (!state.lungVisible || lungFlexId < 0 || data.ncon < 1) return 0;
-  let count = 0;
-  try {
-    for (let index = 0; index < data.ncon; index += 1) {
-      const contact = data.contact.get(index);
-      try {
-        if (contact.flex?.[0] === lungFlexId || contact.flex?.[1] === lungFlexId) count = 1;
-      } finally {
-        contact.delete?.();
-      }
-      if (count) break;
-    }
-  } catch (error) {
-    // Conservative fallback for older WebAssembly bindings without contact.flex.
-    return data.ncon;
-  }
-  return count;
+  if (!state.lungVisible || lungFlexId < 0) return 0;
+  return Math.max(0, data.ncon - nonAirwayContactBaseline);
 }
 
 function normalizedMotorSignals() {
@@ -822,13 +810,22 @@ function animate(now) {
       Math.min(INSERTION_LIMIT_M, actualInsertion + insertionLead),
     );
     applyControls();
-    const steps = Math.max(1, Math.min(36, Math.round(elapsed / model.opt.timestep)));
+    const steps = Math.max(1, Math.min(24, Math.round(elapsed / model.opt.timestep)));
     for (let index = 0; index < steps; index += 1) {
       data.qfrc_applied.fill(0);
       enforcePassiveBaseGuide();
       applyPassiveFollower();
       mujoco.mj_step(model, data);
       enforcePassiveBaseGuide();
+    }
+    if (inAirwayContact) {
+      const damping = Math.exp(-CONTACT_VELOCITY_DAMPING_PER_S * elapsed);
+      for (let index = 0; index < data.qvel.length; index += 1) {
+        const insertionRebound = index === insertionDofAddress
+          && data.qvel[index] < 0
+          && state.insertionTarget > actualInsertion;
+        if (index !== insertionDofAddress || insertionRebound) data.qvel[index] *= damping;
+      }
     }
   }
   modelView.sync();
@@ -878,6 +875,7 @@ async function initialize() {
     interfaceSiteId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE.value, "interface_center");
     const insertionJointId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT.value, "slid_M");
     insertionQposAddress = insertionJointId >= 0 ? model.jnt_qposadr[insertionJointId] : -1;
+    insertionDofAddress = insertionJointId >= 0 ? model.jnt_dofadr[insertionJointId] : -1;
     initializePassiveGuide();
     initializePassiveFollower();
     lungFlexId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_FLEX.value, "bronchial_wall_nonconvex");
@@ -886,6 +884,13 @@ async function initialize() {
       contype: model.flex_contype[lungFlexId],
       conaffinity: model.flex_conaffinity[lungFlexId],
     };
+    model.flex_contype[lungFlexId] = 0;
+    model.flex_conaffinity[lungFlexId] = 0;
+    mujoco.mj_forward(model, data);
+    nonAirwayContactBaseline = data.ncon;
+    model.flex_contype[lungFlexId] = lungCollisionMasks.contype;
+    model.flex_conaffinity[lungFlexId] = lungCollisionMasks.conaffinity;
+    mujoco.mj_forward(model, data);
     if (tipSiteId < 0) throw new Error("The tip_center site is missing from the model.");
     if (interfaceSiteId < 0) throw new Error("The interface_center site is missing from the model.");
 

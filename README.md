@@ -1,4 +1,4 @@
-# Bronchus Robot
+# Bronchus Robot VLA
 
 A two-section tendon-driven continuum bronchoscope research platform with
 MuJoCo simulation, manual control, centerline navigation and synchronized
@@ -8,7 +8,8 @@ multimodal recording.
 
 ## Research status
 
-The formal paper title, authors, abstract and publication link are pending confirmation.
+This project supports an unpublished ICRA-oriented manuscript. The formal
+paper title, authors, abstract and publication link are pending confirmation.
 The website describes implemented capabilities and model geometry; it does
 not claim validated clinical performance or a published navigation benchmark.
 
