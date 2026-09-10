@@ -4,8 +4,9 @@ import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import loadMujoco from "https://cdn.jsdelivr.net/npm/mujoco-js@0.0.7/dist/mujoco_wasm.js";
 
 const $ = (selector) => document.querySelector(selector);
-const MODEL_URL = "sim/bronchoscope_web.xml";
-const LUNG_URL = "sim/part/bronchus.stl";
+const ASSET_VERSION = "8";
+const MODEL_URL = `sim/bronchoscope_web.xml?v=${ASSET_VERSION}`;
+const LUNG_URL = `sim/part/bronchus.stl?v=${ASSET_VERSION}`;
 const MODEL_ASSETS = [
   "base_link.STL",
   "slid_base.STL",
@@ -13,7 +14,6 @@ const MODEL_ASSETS = [
   "lian.STL",
   "qudong1.STL",
   "qudong2.STL",
-  "part/bronchus.stl",
   "part/bronchus_collision_solid_nonconvex.stl",
 ];
 const MAX_BEND_RAD = THREE.MathUtils.degToRad(160);
@@ -848,7 +848,7 @@ async function stageModelFiles() {
   try { mujoco.FS.mkdir("/working/part"); } catch (error) { /* Directory already exists. */ }
   const files = [
     { path: "bronchoscope_web.xml", url: MODEL_URL },
-    ...MODEL_ASSETS.map((path) => ({ path, url: `sim/${path}` })),
+    ...MODEL_ASSETS.map((path) => ({ path, url: `sim/${path}?v=${ASSET_VERSION}` })),
   ];
   await Promise.all(files.map(async ({ path, url }) => {
     const response = await fetch(url);

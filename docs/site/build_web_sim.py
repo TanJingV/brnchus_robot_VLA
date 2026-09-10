@@ -44,6 +44,19 @@ def build_model() -> Path:
             if child.tag == "plugin":
                 parent.remove(child)
 
+    # Three.js renders the translucent airway directly from LUNG_URL. Remove
+    # the duplicate visual mesh from the MuJoCo package while retaining the
+    # independent high-resolution collision mesh used by the physics engine.
+    for parent in root.iter():
+        for child in list(parent):
+            if child.tag == "geom" and child.get("name") == "bronchial_visual":
+                parent.remove(child)
+    asset = root.find("asset")
+    if asset is not None:
+        for mesh in list(asset.findall("mesh")):
+            if mesh.get("name") == "visual_mesh":
+                asset.remove(mesh)
+
     # The browser controller can advance much faster than the desktop viewer's
     # interactive loop. Use a slightly thicker, harder contact shell so a fast
     # insertion command cannot step through the thin triangulated airway wall.
