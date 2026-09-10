@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_DIR = ROOT / "meshes"
+SOURCE_DIR = ROOT / "mujoco_desktop_system" / "meshes"
 SOURCE_MODEL = SOURCE_DIR / "cable_robot_bronch_final_seg2.xml"
 OUTPUT_DIR = Path(__file__).resolve().parent / "sim"
 OUTPUT_MODEL = OUTPUT_DIR / "bronchoscope_web.xml"
@@ -33,14 +33,14 @@ def build_model() -> Path:
     root = tree.getroot()
     root.set("model", "bronchoscope_full_web_simulation")
 
-    # The browser runs MuJoCo and rendering on one UI thread. A 5 ms implicit
+    # The browser runs MuJoCo and rendering on one UI thread. A 2 ms implicit
     # step keeps the flexible chain stable while making the live demo run at
     # real-time speed instead of inheriting the desktop model's 0.2 ms budget.
     option = root.find("option")
     if option is None:
         raise RuntimeError("The source model has no MuJoCo option element")
-    option.set("timestep", "0.005")
-    option.set("iterations", "10")
+    option.set("timestep", "0.002")
+    option.set("iterations", "20")
     option.set("tolerance", "1e-6")
 
     # The CDN WebAssembly build does not statically register MuJoCo's optional
@@ -77,7 +77,7 @@ def build_model() -> Path:
     if airway_contact is None:
         raise RuntimeError("The bronchial collision flex has no contact configuration")
     airway_contact.set("priority", "20")
-    airway_contact.set("solref", "0.020 3")
+    airway_contact.set("solref", "0.008 3")
     airway_contact.set("solimp", "0.92 0.995 0.001")
     airway_contact.set("margin", "0.00035")
 

@@ -4,7 +4,7 @@ import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import loadMujoco from "https://cdn.jsdelivr.net/npm/mujoco-js@0.0.7/dist/mujoco_wasm.js";
 
 const $ = (selector) => document.querySelector(selector);
-const ASSET_VERSION = "16";
+const ASSET_VERSION = "20";
 const MODEL_URL = `sim/bronchoscope_web.xml?v=${ASSET_VERSION}`;
 const LUNG_URL = `sim/part/bronchus.stl?v=${ASSET_VERSION}`;
 const MODEL_ASSETS = [
@@ -23,7 +23,14 @@ const INSERTION_RATE_MPS = 0.20;
 const FREE_INSERTION_LEAD_M = 0.008;
 const CONTACT_INSERTION_RATE_MPS = 0.20;
 const CONTACT_INSERTION_LEAD_M = 0.0015;
-const CONTACT_VELOCITY_DAMPING_PER_S = 16;
+const FREE_VELOCITY_DAMPING_PER_S = 12;
+const CONTACT_VELOCITY_DAMPING_PER_S = 55;
+const MAIN_RENDER_INTERVAL_MS = 1000 / 30;
+const TIP_RENDER_INTERVAL_MS = 1000 / 15;
+const CONTROL_SLEEP_DELAY_MS = 700;
+const FREE_SLEEP_TIMEOUT_MS = 2500;
+const CONTACT_STALL_SLEEP_MS = 450;
+const INSERTION_PROGRESS_EPSILON_M = 0.00015;
 const MOTOR_HISTORY_SECONDS = 4;
 const MOTOR_SAMPLE_INTERVAL_MS = 40;
 const MOTOR_COLORS = ["#e85bbd", "#ff8a55", "#f2c14e", "#5ed39a", "#4ecdc4", "#5c91ff", "#b07cff"];
@@ -55,6 +62,10 @@ const state = {
   insertionTarget: 0,
   insertionCommand: 0,
   passiveDebugLocked: false,
+  physicsSleeping: false,
+  lastControlChange: 0,
+  lastInsertionProgress: 0,
+  lastInsertionPosition: 0,
 };
 
 let mujoco;
@@ -86,6 +97,8 @@ let lungCollisionMasks = null;
 let lastFrame = performance.now();
 let telemetryDeadline = 0;
 let motorSampleDeadline = 0;
+let mainRenderDeadline = 0;
+let tipRenderDeadline = 0;
 let motorHistory = [];
 let nonAirwayContactBaseline = 0;
 
@@ -365,6 +378,7 @@ class CompassControl {
   }
 
   set(x, y) {
+    wakePhysics();
     const magnitude = Math.hypot(x, y);
     const scale = magnitude > 1 ? 1 / magnitude : 1;
     this.vector.x = x * scale;
@@ -381,6 +395,23 @@ class CompassControl {
 
 const proximalCompass = new CompassControl("#proximal-pad", "proximal", "#proximal-angle", "#proximal-direction");
 const distalCompass = new CompassControl("#distal-pad", "distal", "#distal-angle", "#distal-direction");
+
+function wakePhysics() {
+  state.physicsSleeping = false;
+  state.lastControlChange = performance.now();
+  if (state.ready && !state.paused) setRuntime("Running live", "ready");
+}
+
+function sleepPhysics(actualInsertion) {
+  state.physicsSleeping = true;
+  state.insertionCommand = actualInsertion;
+  data.qvel.fill(0);
+  data.qacc.fill(0);
+  data.qacc_warmstart.fill(0);
+  applyControls();
+  mujoco.mj_forward(model, data);
+  setRuntime("Settled", "ready");
+}
 
 function actuatorId(name) {
   const id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR.value, name);
@@ -515,6 +546,9 @@ function resetSimulation() {
   mujoco.mj_resetDataKeyframe(model, data, 0);
   state.insertionTarget = 0;
   state.insertionCommand = 0;
+  state.physicsSleeping = false;
+  state.lastInsertionPosition = 0;
+  state.lastInsertionProgress = performance.now();
   distalFeedback.set(0, 0);
   filteredActiveRotation.set(0, 0, 0);
   motorHistory = [];
@@ -631,6 +665,7 @@ function setLungEnabled(enabled) {
 
 function setupControls() {
   $("#insertion").addEventListener("input", (event) => {
+    wakePhysics();
     const millimetres = Number(event.target.value);
     state.insertionTarget = millimetres / 1000;
     $("#insertion-value").textContent = `${millimetres.toFixed(1)} mm`;
@@ -642,9 +677,11 @@ function setupControls() {
   });
   $("#reset-sim").addEventListener("click", resetSimulation);
   $("#toggle-lung").addEventListener("click", () => {
+    wakePhysics();
     setLungEnabled(!state.lungVisible);
   });
   $("#toggle-passive-lock").addEventListener("click", () => {
+    wakePhysics();
     state.passiveDebugLocked = !state.passiveDebugLocked;
     filteredActiveRotation.set(0, 0, 0);
     enforcePassiveBaseGuide();
@@ -791,7 +828,7 @@ function animate(now) {
   if (!state.ready) return;
   const elapsed = Math.min(0.035, Math.max(0, (now - lastFrame) / 1000));
   lastFrame = now;
-  if (!state.paused) {
+  if (!state.paused && !state.physicsSleeping) {
     const actualInsertion = insertionQposAddress >= 0
       ? data.qpos[insertionQposAddress]
       : state.insertionCommand;
@@ -818,24 +855,56 @@ function animate(now) {
       mujoco.mj_step(model, data);
       enforcePassiveBaseGuide();
     }
-    if (inAirwayContact) {
-      const damping = Math.exp(-CONTACT_VELOCITY_DAMPING_PER_S * elapsed);
-      for (let index = 0; index < data.qvel.length; index += 1) {
-        const insertionRebound = index === insertionDofAddress
-          && data.qvel[index] < 0
-          && state.insertionTarget > actualInsertion;
-        if (index !== insertionDofAddress || insertionRebound) data.qvel[index] *= damping;
+    const dampingRate = inAirwayContact
+      ? CONTACT_VELOCITY_DAMPING_PER_S
+      : FREE_VELOCITY_DAMPING_PER_S;
+    const damping = Math.exp(-dampingRate * elapsed);
+    for (let index = 0; index < data.qvel.length; index += 1) {
+      const insertionRebound = index === insertionDofAddress
+        && data.qvel[index] < 0
+        && state.insertionTarget > actualInsertion;
+      if (index !== insertionDofAddress || insertionRebound) {
+        data.qvel[index] *= damping;
+        if (Math.abs(data.qvel[index]) < 1e-6) data.qvel[index] = 0;
       }
     }
+
+    const actualAfterStep = insertionQposAddress >= 0
+      ? data.qpos[insertionQposAddress]
+      : state.insertionCommand;
+    if (Math.abs(actualAfterStep - state.lastInsertionPosition) >= INSERTION_PROGRESS_EPSILON_M) {
+      state.lastInsertionPosition = actualAfterStep;
+      state.lastInsertionProgress = now;
+    }
+    const controlQuietFor = now - state.lastControlChange;
+    const insertionSettled = Math.abs(state.insertionTarget - actualAfterStep) < 0.0005;
+    const contactStalled = inAirwayContact
+      && now - state.lastInsertionProgress >= CONTACT_STALL_SLEEP_MS;
+    const freeTimedOut = !inAirwayContact
+      && insertionSettled
+      && controlQuietFor >= FREE_SLEEP_TIMEOUT_MS;
+    if (controlQuietFor >= CONTROL_SLEEP_DELAY_MS && (contactStalled || freeTimedOut)) {
+      sleepPhysics(actualAfterStep);
+    }
   }
-  modelView.sync();
-  tendonView.sync();
-  updateTipCamera();
-  orbit.update();
-  resizeRenderer(renderer, camera);
-  resizeRenderer(tipRenderer, tipCamera);
-  renderer.render(scene, camera);
-  tipRenderer.render(scene, tipCamera);
+  const renderMain = now >= mainRenderDeadline;
+  const renderTip = now >= tipRenderDeadline;
+  if (renderMain || renderTip) {
+    modelView.sync();
+    tendonView.sync();
+    updateTipCamera();
+  }
+  if (renderMain) {
+    mainRenderDeadline = now + MAIN_RENDER_INTERVAL_MS;
+    orbit.update();
+    resizeRenderer(renderer, camera);
+    renderer.render(scene, camera);
+  }
+  if (renderTip) {
+    tipRenderDeadline = now + TIP_RENDER_INTERVAL_MS;
+    resizeRenderer(tipRenderer, tipCamera);
+    tipRenderer.render(scene, tipCamera);
+  }
   updateTelemetry(now);
   drawMotorChart(now);
 }
@@ -868,6 +937,9 @@ async function initialize() {
     data = new mujoco.MjData(model);
     mujoco.mj_resetDataKeyframe(model, data, 0);
     mujoco.mj_forward(model, data);
+    state.lastControlChange = performance.now();
+    state.lastInsertionProgress = state.lastControlChange;
+    state.lastInsertionPosition = insertionQposAddress >= 0 ? data.qpos[insertionQposAddress] : 0;
 
     actuatorIds = ["act_t1", "act_t2", "act_t3", "act_t4", "act_t5", "act_t6", "act_slid_M"].map(actuatorId);
     actuatorBaselines = actuatorIds.slice(0, 6).map((id) => data.ctrl[id]);
