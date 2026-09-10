@@ -1,4 +1,4 @@
-"""Build the browser-compatible MuJoCo scene without changing desktop assets."""
+"""Stage the complete desktop MuJoCo scene for browser execution."""
 
 from __future__ import annotations
 
@@ -8,97 +8,65 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_MODEL = ROOT / "two_segment_tdcr_opencr" / "two_segment_tdcr.xml"
-SOURCE_LUNG = ROOT / "meshes" / "part" / "bronchus.stl"
+SOURCE_DIR = ROOT / "meshes"
+SOURCE_MODEL = SOURCE_DIR / "cable_robot_bronch_final_seg2.xml"
 OUTPUT_DIR = Path(__file__).resolve().parent / "sim"
+OUTPUT_MODEL = OUTPUT_DIR / "bronchoscope_web.xml"
+
+
+def referenced_meshes(model_path: Path) -> list[Path]:
+    root = ET.parse(model_path).getroot()
+    paths = []
+    for element in root.findall("./asset/mesh"):
+        file_name = element.get("file")
+        if file_name:
+            paths.append(Path(file_name))
+    for element in root.iter("flexcomp"):
+        file_name = element.get("file")
+        if file_name:
+            paths.append(Path(file_name))
+    return list(dict.fromkeys(paths))
 
 
 def build_model() -> Path:
     tree = ET.parse(SOURCE_MODEL)
     root = tree.getroot()
-    root.set("model", "bronchoscope_web_tendon_simulation")
+    root.set("model", "bronchoscope_full_web_simulation")
 
-    option = root.find("option")
-    if option is None:
-        raise RuntimeError("Source model has no MuJoCo option element")
-    option.set("timestep", "0.001")
-    option.set("iterations", "45")
-    option.set("tolerance", "1e-7")
-
-    worldbody = root.find("worldbody")
-    robot = worldbody.find("body[@name='tdcr_base']") if worldbody is not None else None
-    if robot is None:
-        raise RuntimeError("Source model has no tdcr_base body")
-
-    # Match the current desktop model's centered entrance pose. The slider then
-    # advances the complete robot in the local +X direction.
-    robot.set("pos", "0.1660102 0.00293 1.09464")
-    insertion = ET.Element(
-        "joint",
-        {
-            "name": "web_insertion",
-            "type": "slide",
-            "axis": "1 0 0",
-            "range": "-0.015 0.22",
-            "damping": "2",
-            "armature": "0.02",
-        },
-    )
-    robot.insert(0, insertion)
-    robot.insert(
-        1,
-        ET.Element(
-            "geom",
-            {
-                "name": "web_sheath",
-                "type": "cylinder",
-                "fromto": "-0.14 0 0 0 0 0",
-                "size": "0.00215",
-                "mass": "0",
-                "rgba": "0.035 0.11 0.17 1",
-                "contype": "0",
-                "conaffinity": "0",
-            },
-        ),
-    )
-
-    actuators = root.find("actuator")
-    if actuators is None:
-        raise RuntimeError("Source model has no actuator element")
-    actuators.append(
-        ET.Element(
-            "position",
-            {
-                "name": "web_insertion_actuator",
-                "joint": "web_insertion",
-                "kp": "900",
-                "kv": "70",
-                "ctrllimited": "true",
-                "ctrlrange": "-0.015 0.22",
-                "forcelimited": "true",
-                "forcerange": "-250 250",
-            },
-        )
-    )
-
-    key = root.find("keyframe/key")
-    if key is not None:
-        controls = key.get("ctrl", "").split()
-        controls.append("0")
-        key.set("ctrl", " ".join(controls))
+    # The CDN WebAssembly build does not statically register MuJoCo's optional
+    # elasticity plugin. Keep the complete passive joint chain and its native
+    # stiffness/damping, but remove only the unavailable plugin declarations.
+    extension = root.find("extension")
+    if extension is not None:
+        root.remove(extension)
+    for parent in root.iter():
+        for child in list(parent):
+            if child.tag == "plugin":
+                parent.remove(child)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output = OUTPUT_DIR / "bronchoscope_web.xml"
     ET.indent(tree, space="  ")
-    tree.write(output, encoding="utf-8", xml_declaration=True)
-    return output
+    tree.write(OUTPUT_MODEL, encoding="utf-8", xml_declaration=True)
+
+    for relative_path in referenced_meshes(SOURCE_MODEL):
+        source = SOURCE_DIR / relative_path
+        if not source.is_file():
+            raise FileNotFoundError(f"Missing MuJoCo asset: {source}")
+        destination = OUTPUT_DIR / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    return OUTPUT_MODEL
 
 
 def main() -> None:
     model = build_model()
-    shutil.copy2(SOURCE_LUNG, OUTPUT_DIR / "bronchus.stl")
+    assets = referenced_meshes(model)
+    total_bytes = model.stat().st_size + sum(
+        (OUTPUT_DIR / asset).stat().st_size for asset in assets
+    )
     print(f"Built {model.relative_to(ROOT)}")
-    print(f"Copied {(OUTPUT_DIR / 'bronchus.stl').relative_to(ROOT)}")
+    print(f"Staged {len(assets)} referenced meshes ({total_bytes:,} bytes total)")
 
 
 if __name__ == "__main__":

@@ -111,14 +111,15 @@
 
             <div class="insertion-control">
               <label for="insertion"><span>INSERTION DEPTH</span><output id="insertion-value">0.0 mm</output></label>
-              <input id="insertion" type="range" min="0" max="180" step="0.5" value="0" disabled>
-              <div class="range-labels"><span>0</span><span>90</span><span>180 mm</span></div>
+              <input id="insertion" type="range" min="0" max="577" step="0.5" value="0" disabled>
+              <div class="range-labels"><span>0</span><span>288</span><span>577 mm</span></div>
             </div>
 
             <div class="button-grid">
               <button class="control-button primary" id="pause-sim" disabled>暂停仿真</button>
               <button class="control-button" id="reset-sim" disabled>复位模型</button>
               <button class="control-button active" id="toggle-lung" aria-pressed="true" disabled>肺部：显示</button>
+              <button class="control-button" id="toggle-passive-lock" aria-pressed="false" disabled>被动段：跟随</button>
               <button class="control-button" id="focus-tip" disabled>跟随末端</button>
             </div>
 
@@ -129,7 +130,7 @@
           </aside>
         </div>
       </div>
-      <p class="figure-caption"><b>Interactive demo.</b> Web 场景使用项目的双段标准 MJCF：24 个正交弯曲关节、6 根空间腱、一个插入自由度。肺部 STL 作为半透明解剖环境显示；浏览器版本不启用桌面端弹性插件与真实设备驱动。</p>
+      <p class="figure-caption"><b>Interactive demo.</b> Web 场景直接派生自桌面端完整 MJCF，包含底座、577 mm 滑台、被动导管、双主动段、6 根空间腱、tip camera 与刚性非凸肺部碰撞面。视觉肺部保持半透明，碰撞面由 MuJoCo WebAssembly 独立参与物理解算。</p>
     </section>
 
     <section id="abstract" class="section prose-section">
@@ -163,6 +164,6 @@
   </main>
 
   <footer><a class="wordmark" href="#top">BRONCHOSCOPE · MUJOCO</a><p>Interactive simulation built with MuJoCo WebAssembly and Three.js. Research code and assets are maintained in the project repository.</p><a href="https://continuumroboticslab.github.io/opencr-mujoco/">Design reference ↗</a></footer>
-  <script type="module" src="simulator.js?v=2"></script>
+  <script type="module" src="simulator.js?v=4"></script>
 </body>
 </html>

@@ -5,9 +5,37 @@ import loadMujoco from "https://cdn.jsdelivr.net/npm/mujoco-js@0.0.7/dist/mujoco
 
 const $ = (selector) => document.querySelector(selector);
 const MODEL_URL = "sim/bronchoscope_web.xml";
-const LUNG_URL = "sim/bronchus.stl";
-const MAX_BEND_RAD = THREE.MathUtils.degToRad(80);
+const LUNG_URL = "sim/part/bronchus.stl";
+const MODEL_ASSETS = [
+  "base_link.STL",
+  "slid_base.STL",
+  "slid_M.STL",
+  "lian.STL",
+  "qudong1.STL",
+  "qudong2.STL",
+  "part/bronchus.stl",
+  "part/bronchus_collision_solid_nonconvex.stl",
+];
+const MAX_BEND_RAD = THREE.MathUtils.degToRad(160);
 const TENDON_RADIUS = 0.00154;
+const INSERTION_LIMIT_M = 0.577;
+const INSERTION_RATE_MPS = 0.08;
+const INSERTION_LEAD_M = 0.015;
+const PASSIVE_GUIDE_FRONT_M = 0.5690000348619164;
+const PASSIVE_GUIDE_OFFSETS_M = [
+  -0.0795333, -0.0578666, -0.0361999, -0.0145332, 0.0071335,
+  0.0288002, 0.0504669, 0.0721336, 0.0938003, 0.1154670,
+  0.1371337, 0.1588004, 0.1804671, 0.2021338, 0.2238004,
+  0.2454671, 0.2671338, 0.2888004, 0.3104671, 0.3321338,
+  0.3538005, 0.3754671, 0.3971338, 0.4188004, 0.4404671,
+  0.4621337, 0.4838003, 0.5054670, 0.5271336,
+];
+const PASSIVE_FOLLOW_WEIGHTS = [0.10, 0.13, 0.16, 0.18, 0.20, 0.23];
+const PASSIVE_FOLLOW_RATIO = 0.55;
+const PASSIVE_FOLLOW_STIFFNESS = 18.0;
+const PASSIVE_FOLLOW_DAMPING = 0.35;
+const PASSIVE_FOLLOW_MAX_TORQUE = 2.5;
+const PASSIVE_FOLLOW_FILTER_S = 0.025;
 const PROXIMAL_WIRE_ANGLES = [0, 120, 240].map(THREE.MathUtils.degToRad);
 const DISTAL_WIRE_ANGLES = [60, 180, 300].map(THREE.MathUtils.degToRad);
 
@@ -18,7 +46,9 @@ const state = {
   followTip: false,
   proximal: { x: 0, y: 0 },
   distal: { x: 0, y: 0 },
-  insertion: 0,
+  insertionTarget: 0,
+  insertionCommand: 0,
+  passiveDebugLocked: false,
 };
 
 let mujoco;
@@ -34,8 +64,18 @@ let renderer;
 let tipRenderer;
 let orbit;
 let tipSiteId = -1;
+let interfaceSiteId = -1;
+let insertionQposAddress = -1;
 let actuatorIds = [];
 let actuatorBaselines = [];
+let distalFeedback = new THREE.Vector2();
+let passiveGuideJoints = [];
+let passiveFollowerJoints = [];
+let activeBaseBodyId = -1;
+let proximalEndBodyId = -1;
+let filteredActiveRotation = new THREE.Vector3();
+let lungFlexId = -1;
+let lungCollisionMasks = null;
 let lastFrame = performance.now();
 let telemetryDeadline = 0;
 
@@ -51,7 +91,7 @@ function setRuntime(label, type = "") {
 }
 
 function setControlsEnabled(enabled) {
-  ["#insertion", "#pause-sim", "#reset-sim", "#toggle-lung", "#focus-tip"].forEach((selector) => {
+  ["#insertion", "#pause-sim", "#reset-sim", "#toggle-lung", "#toggle-passive-lock", "#focus-tip"].forEach((selector) => {
     $(selector).disabled = !enabled;
   });
   ["#proximal-pad", "#distal-pad"].forEach((selector) => {
@@ -82,14 +122,43 @@ function geometryFor(type, size) {
   return geometry;
 }
 
+function compiledMeshGeometry(meshId) {
+  const vertexAddress = model.mesh_vertadr[meshId];
+  const vertexCount = model.mesh_vertnum[meshId];
+  const faceAddress = model.mesh_faceadr[meshId];
+  const faceCount = model.mesh_facenum[meshId];
+  const positions = new Float32Array(
+    model.mesh_vert.slice(vertexAddress * 3, (vertexAddress + vertexCount) * 3),
+  );
+  const indices = new Uint32Array(
+    model.mesh_face.slice(faceAddress * 3, (faceAddress + faceCount) * 3),
+  );
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 class MuJoCoGeometryView {
   constructor(targetScene) {
     this.items = [];
+    const meshCache = new Map();
+    const meshType = mujoco.mjtObj.mjOBJ_MESH.value;
     for (let geomId = 0; geomId < model.ngeom; geomId += 1) {
       const rgba = Array.from(model.geom_rgba.slice(geomId * 4, geomId * 4 + 4));
       if (rgba[3] < 0.025 || model.geom_group[geomId] >= 3) continue;
       const size = Array.from(model.geom_size.slice(geomId * 3, geomId * 3 + 3));
-      const geometry = geometryFor(model.geom_type[geomId], size);
+      const geomType = model.geom_type[geomId];
+      let geometry = geometryFor(geomType, size);
+      if (geomType === 7) {
+        const meshId = model.geom_dataid[geomId];
+        const meshName = mujoco.mj_id2name(model, meshType, meshId);
+        if (meshName === "visual_mesh") continue;
+        if (!meshCache.has(meshId)) meshCache.set(meshId, compiledMeshGeometry(meshId));
+        geometry = meshCache.get(meshId);
+      }
       if (!geometry) continue;
 
       const material = new THREE.MeshStandardMaterial({
@@ -168,7 +237,7 @@ function setupScene() {
 
   camera = new THREE.PerspectiveCamera(42, 1, 0.0005, 8);
   camera.up.set(0, 0, 1);
-  camera.position.set(0.43, -0.26, 1.22);
+  camera.position.set(-0.04, -0.72, 1.28);
   tipCamera = new THREE.PerspectiveCamera(72, 1, 0.00035, 1.5);
   tipCamera.up.set(0, 0, 1);
 
@@ -185,7 +254,7 @@ function setupScene() {
   tipRenderer.toneMappingExposure = 1.25;
 
   orbit = new OrbitControls(camera, renderer.domElement);
-  orbit.target.set(0.25, 0.005, 1.075);
+  orbit.target.set(-0.05, 0.005, 1.075);
   orbit.enableDamping = true;
   orbit.dampingFactor = 0.08;
   orbit.minDistance = 0.035;
@@ -294,7 +363,7 @@ class CompassControl {
     const direction = Math.atan2(this.vector.y, this.vector.x);
     this.knob.style.transform = `translate(calc(-50% + ${Math.cos(direction) * distance}px), calc(-50% + ${Math.sin(direction) * distance}px))`;
 
-    const bend = THREE.MathUtils.radToDeg(MAX_BEND_RAD * Math.hypot(this.vector.x, this.vector.y) ** 2);
+    const bend = THREE.MathUtils.radToDeg(0.5 * MAX_BEND_RAD * Math.hypot(this.vector.x, this.vector.y) ** 2);
     this.angleOutput.textContent = `${bend.toFixed(1)}°`;
     this.directionOutput.textContent = bend < 0.1 ? "CENTER" : `${((THREE.MathUtils.radToDeg(-direction) + 360) % 360).toFixed(0)}°`;
   }
@@ -309,49 +378,242 @@ function actuatorId(name) {
   return id;
 }
 
-function bendCommand(vector) {
-  const magnitude = Math.min(1, Math.hypot(vector.x, vector.y));
-  return {
-    bend: MAX_BEND_RAD * magnitude * magnitude,
-    direction: Math.atan2(-vector.y, vector.x),
-  };
+function motorVector(vector) {
+  const result = new THREE.Vector2(vector.x, vector.y);
+  const magnitude = Math.min(1, result.length());
+  if (result.length() > 1) result.normalize();
+  result.multiplyScalar(0.5 * magnitude);
+  result.x *= -1;
+  return result;
+}
+
+function setTendonTriplet(firstActuator, vector, wireAngles) {
+  const magnitude = vector.length();
+  const direction = magnitude > 1e-9 ? Math.atan2(vector.y, vector.x) : 0;
+  const bend = MAX_BEND_RAD * magnitude;
+  wireAngles.forEach((wireAngle, index) => {
+    const actuatorIndex = firstActuator + index;
+    const actuator = actuatorIds[actuatorIndex];
+    const lower = model.actuator_ctrlrange[actuator * 2];
+    const upper = model.actuator_ctrlrange[actuator * 2 + 1];
+    const target = actuatorBaselines[actuatorIndex]
+      - TENDON_RADIUS * bend * Math.cos(wireAngle - direction);
+    data.ctrl[actuator] = THREE.MathUtils.clamp(target, lower, upper);
+  });
+}
+
+function relativeRotationVector(firstSiteId, secondSiteId) {
+  const firstOffset = firstSiteId * 9;
+  const secondOffset = secondSiteId * 9;
+  const first = data.site_xmat.slice(firstOffset, firstOffset + 9);
+  const second = data.site_xmat.slice(secondOffset, secondOffset + 9);
+  const relative = new Float64Array(9);
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      for (let index = 0; index < 3; index += 1) {
+        relative[row * 3 + column] += first[index * 3 + row]
+          * second[index * 3 + column];
+      }
+    }
+  }
+  const cosine = THREE.MathUtils.clamp(
+    (relative[0] + relative[4] + relative[8] - 1) / 2,
+    -1,
+    1,
+  );
+  const angle = Math.acos(cosine);
+  if (angle < 1e-8) return new THREE.Vector3();
+  const scale = angle / Math.max(2 * Math.sin(angle), 1e-8);
+  return new THREE.Vector3(
+    (relative[7] - relative[5]) * scale,
+    (relative[2] - relative[6]) * scale,
+    (relative[3] - relative[1]) * scale,
+  );
+}
+
+function bodyRelativeRotationVector(firstBodyId, secondBodyId) {
+  const firstOffset = firstBodyId * 9;
+  const secondOffset = secondBodyId * 9;
+  const first = data.xmat.slice(firstOffset, firstOffset + 9);
+  const second = data.xmat.slice(secondOffset, secondOffset + 9);
+  const relative = new Float64Array(9);
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      for (let index = 0; index < 3; index += 1) {
+        relative[row * 3 + column] += first[index * 3 + row]
+          * second[index * 3 + column];
+      }
+    }
+  }
+  const cosine = THREE.MathUtils.clamp(
+    (relative[0] + relative[4] + relative[8] - 1) / 2,
+    -1,
+    1,
+  );
+  const angle = Math.acos(cosine);
+  if (angle < 1e-8) return new THREE.Vector3();
+  const scale = angle / Math.max(2 * Math.sin(angle), 1e-8);
+  return new THREE.Vector3(
+    (relative[7] - relative[5]) * scale,
+    (relative[2] - relative[6]) * scale,
+    (relative[3] - relative[1]) * scale,
+  );
+}
+
+function quaternionRotationVector(qposAddress) {
+  let w = data.qpos[qposAddress];
+  let x = data.qpos[qposAddress + 1];
+  let y = data.qpos[qposAddress + 2];
+  let z = data.qpos[qposAddress + 3];
+  if (w < 0) {
+    w = -w;
+    x = -x;
+    y = -y;
+    z = -z;
+  }
+  const vectorNorm = Math.hypot(x, y, z);
+  if (vectorNorm < 1e-10) return new THREE.Vector3();
+  const angle = 2 * Math.atan2(vectorNorm, THREE.MathUtils.clamp(w, -1, 1));
+  return new THREE.Vector3(x, y, z).multiplyScalar(angle / vectorNorm);
 }
 
 function applyControls() {
   if (!state.ready) return;
-  const proximal = bendCommand(state.proximal);
-  const distal = bendCommand(state.distal);
+  const proximalMotor = motorVector(state.proximal);
+  const distalDesired = motorVector(state.distal);
+  const distalRotation = relativeRotationVector(interfaceSiteId, tipSiteId);
+  const measuredDistal = new THREE.Vector2(
+    0.00838 * distalRotation.y + 0.40178 * distalRotation.z,
+    -0.40419 * distalRotation.y,
+  );
+  distalFeedback.addScaledVector(distalDesired.clone().sub(measuredDistal), 0.03);
+  if (distalFeedback.length() > 0.3) distalFeedback.setLength(0.3);
+  const distalMotor = new THREE.Vector2(
+    0.94 * proximalMotor.x - 0.026 * proximalMotor.y,
+    0.92 * proximalMotor.y,
+  ).add(distalDesired).add(distalFeedback);
+  if (distalMotor.length() > 2) distalMotor.setLength(2);
 
-  PROXIMAL_WIRE_ANGLES.forEach((wireAngle, index) => {
-    data.ctrl[actuatorIds[index]] = actuatorBaselines[index]
-      - TENDON_RADIUS * proximal.bend * Math.cos(wireAngle - proximal.direction);
-  });
-  DISTAL_WIRE_ANGLES.forEach((wireAngle, index) => {
-    const actuatorIndex = index + 3;
-    const proximalContribution = proximal.bend * Math.cos(wireAngle - proximal.direction);
-    const distalContribution = distal.bend * Math.cos(wireAngle - distal.direction);
-    data.ctrl[actuatorIds[actuatorIndex]] = actuatorBaselines[actuatorIndex]
-      - TENDON_RADIUS * (proximalContribution + distalContribution);
-  });
-  data.ctrl[actuatorIds[6]] = state.insertion;
+  setTendonTriplet(0, proximalMotor, PROXIMAL_WIRE_ANGLES);
+  setTendonTriplet(3, distalMotor, DISTAL_WIRE_ANGLES);
+  data.ctrl[actuatorIds[6]] = state.insertionCommand;
 }
 
 function resetSimulation() {
   if (!state.ready) return;
   mujoco.mj_resetDataKeyframe(model, data, 0);
-  state.insertion = 0;
+  state.insertionTarget = 0;
+  state.insertionCommand = 0;
+  distalFeedback.set(0, 0);
+  filteredActiveRotation.set(0, 0, 0);
   $("#insertion").value = "0";
   $("#insertion-value").textContent = "0.0 mm";
   proximalCompass.set(0, 0);
   distalCompass.set(0, 0);
   applyControls();
+  enforcePassiveBaseGuide();
   mujoco.mj_forward(model, data);
+}
+
+function initializePassiveGuide() {
+  const names = [
+    ...Array.from({ length: 28 }, (_, index) => `cable_stiffJ_${index + 1}`),
+    "cable_stiffJ_last",
+  ];
+  passiveGuideJoints = names.map((name, index) => {
+    const jointId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT.value, name);
+    if (jointId < 0) throw new Error(`模型中缺少被动关节 ${name}`);
+    return {
+      qpos: model.jnt_qposadr[jointId],
+      dof: model.jnt_dofadr[jointId],
+      offset: PASSIVE_GUIDE_OFFSETS_M[index],
+    };
+  });
+}
+
+function initializePassiveFollower() {
+  const names = [
+    ...Array.from({ length: 5 }, (_, index) => `cable_stiffJ_${index + 24}`),
+    "cable_stiffJ_last",
+  ];
+  passiveFollowerJoints = names.map((name, index) => {
+    const jointId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT.value, name);
+    if (jointId < 0) throw new Error(`模型中缺少被动跟随关节 ${name}`);
+    return {
+      qpos: model.jnt_qposadr[jointId],
+      dof: model.jnt_dofadr[jointId],
+      maximumAngle: model.jnt_range[jointId * 2 + 1],
+      weight: PASSIVE_FOLLOW_WEIGHTS[index],
+    };
+  });
+  activeBaseBodyId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY.value, "active_tdcr_base");
+  proximalEndBodyId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY.value, "seg2_body");
+  if (activeBaseBodyId < 0 || proximalEndBodyId < 0) {
+    throw new Error("模型中缺少主动段被动跟随参考体");
+  }
+}
+
+function applyPassiveFollower() {
+  if (state.passiveDebugLocked) return;
+  const activeRotation = bodyRelativeRotationVector(activeBaseBodyId, proximalEndBodyId);
+  activeRotation.x = 0;
+  const alpha = THREE.MathUtils.clamp(
+    model.opt.timestep / (PASSIVE_FOLLOW_FILTER_S + model.opt.timestep),
+    0,
+    1,
+  );
+  filteredActiveRotation.lerp(activeRotation, alpha);
+
+  passiveFollowerJoints.forEach(({ qpos, dof, maximumAngle, weight }) => {
+    const desired = filteredActiveRotation.clone().multiplyScalar(PASSIVE_FOLLOW_RATIO * weight);
+    if (maximumAngle > 0 && desired.length() > maximumAngle) desired.setLength(maximumAngle);
+    const current = quaternionRotationVector(qpos);
+    const torque = desired.sub(current).multiplyScalar(PASSIVE_FOLLOW_STIFFNESS);
+    torque.x -= PASSIVE_FOLLOW_DAMPING * data.qvel[dof];
+    torque.y -= PASSIVE_FOLLOW_DAMPING * data.qvel[dof + 1];
+    torque.z -= PASSIVE_FOLLOW_DAMPING * data.qvel[dof + 2];
+    if (torque.length() > PASSIVE_FOLLOW_MAX_TORQUE) torque.setLength(PASSIVE_FOLLOW_MAX_TORQUE);
+    data.qfrc_applied[dof] += torque.x;
+    data.qfrc_applied[dof + 1] += torque.y;
+    data.qfrc_applied[dof + 2] += torque.z;
+  });
+}
+
+function enforcePassiveBaseGuide() {
+  if (insertionQposAddress < 0) return;
+  const insertion = data.qpos[insertionQposAddress];
+  passiveGuideJoints.forEach(({ qpos, dof, offset }) => {
+    if (!state.passiveDebugLocked && offset + insertion > PASSIVE_GUIDE_FRONT_M) return;
+    data.qpos[qpos] = 1;
+    data.qpos[qpos + 1] = 0;
+    data.qpos[qpos + 2] = 0;
+    data.qpos[qpos + 3] = 0;
+    for (let axis = 0; axis < 3; axis += 1) {
+      data.qvel[dof + axis] = 0;
+      data.qacc[dof + axis] = 0;
+      data.qacc_warmstart[dof + axis] = 0;
+      data.qfrc_applied[dof + axis] = 0;
+    }
+  });
+}
+
+function setLungEnabled(enabled) {
+  state.lungVisible = enabled;
+  lungGroup.visible = enabled;
+  if (lungFlexId >= 0 && lungCollisionMasks) {
+    model.flex_contype[lungFlexId] = enabled ? lungCollisionMasks.contype : 0;
+    model.flex_conaffinity[lungFlexId] = enabled ? lungCollisionMasks.conaffinity : 0;
+  }
+  mujoco.mj_forward(model, data);
+  $("#toggle-lung").textContent = `肺部：${enabled ? "显示" : "隐藏"}`;
+  $("#toggle-lung").classList.toggle("active", enabled);
+  $("#toggle-lung").setAttribute("aria-pressed", String(enabled));
 }
 
 function setupControls() {
   $("#insertion").addEventListener("input", (event) => {
     const millimetres = Number(event.target.value);
-    state.insertion = millimetres / 1000;
+    state.insertionTarget = millimetres / 1000;
     $("#insertion-value").textContent = `${millimetres.toFixed(1)} mm`;
   });
   $("#pause-sim").addEventListener("click", () => {
@@ -361,11 +623,16 @@ function setupControls() {
   });
   $("#reset-sim").addEventListener("click", resetSimulation);
   $("#toggle-lung").addEventListener("click", () => {
-    state.lungVisible = !state.lungVisible;
-    lungGroup.visible = state.lungVisible;
-    $("#toggle-lung").textContent = `肺部：${state.lungVisible ? "显示" : "隐藏"}`;
-    $("#toggle-lung").classList.toggle("active", state.lungVisible);
-    $("#toggle-lung").setAttribute("aria-pressed", String(state.lungVisible));
+    setLungEnabled(!state.lungVisible);
+  });
+  $("#toggle-passive-lock").addEventListener("click", () => {
+    state.passiveDebugLocked = !state.passiveDebugLocked;
+    filteredActiveRotation.set(0, 0, 0);
+    enforcePassiveBaseGuide();
+    mujoco.mj_forward(model, data);
+    $("#toggle-passive-lock").textContent = `被动段：${state.passiveDebugLocked ? "锁定" : "跟随"}`;
+    $("#toggle-passive-lock").classList.toggle("active", state.passiveDebugLocked);
+    $("#toggle-passive-lock").setAttribute("aria-pressed", String(state.passiveDebugLocked));
   });
   $("#focus-tip").addEventListener("click", () => {
     state.followTip = !state.followTip;
@@ -421,9 +688,29 @@ function animate(now) {
   const elapsed = Math.min(0.035, Math.max(0, (now - lastFrame) / 1000));
   lastFrame = now;
   if (!state.paused) {
+    const actualInsertion = insertionQposAddress >= 0
+      ? data.qpos[insertionQposAddress]
+      : state.insertionCommand;
+    const maximumStep = INSERTION_RATE_MPS * elapsed;
+    state.insertionCommand += THREE.MathUtils.clamp(
+      state.insertionTarget - state.insertionCommand,
+      -maximumStep,
+      maximumStep,
+    );
+    state.insertionCommand = THREE.MathUtils.clamp(
+      state.insertionCommand,
+      Math.max(0, actualInsertion - INSERTION_LEAD_M),
+      Math.min(INSERTION_LIMIT_M, actualInsertion + INSERTION_LEAD_M),
+    );
     applyControls();
     const steps = Math.max(1, Math.min(36, Math.round(elapsed / model.opt.timestep)));
-    for (let index = 0; index < steps; index += 1) mujoco.mj_step(model, data);
+    for (let index = 0; index < steps; index += 1) {
+      data.qfrc_applied.fill(0);
+      enforcePassiveBaseGuide();
+      applyPassiveFollower();
+      mujoco.mj_step(model, data);
+      enforcePassiveBaseGuide();
+    }
   }
   modelView.sync();
   tendonView.sync();
@@ -436,10 +723,19 @@ function animate(now) {
   updateTelemetry(now);
 }
 
-async function fetchModel() {
-  const response = await fetch(MODEL_URL);
-  if (!response.ok) throw new Error(`MJCF 下载失败（HTTP ${response.status}）`);
-  return new Uint8Array(await response.arrayBuffer());
+async function stageModelFiles() {
+  try { mujoco.FS.mkdir("/working"); } catch (error) { /* Directory already exists. */ }
+  try { mujoco.FS.mkdir("/working/part"); } catch (error) { /* Directory already exists. */ }
+  const files = [
+    { path: "bronchoscope_web.xml", url: MODEL_URL },
+    ...MODEL_ASSETS.map((path) => ({ path, url: `sim/${path}` })),
+  ];
+  await Promise.all(files.map(async ({ path, url }) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${path} 下载失败（HTTP ${response.status}）`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    mujoco.FS.writeFile(`/working/${path}`, bytes);
+  }));
 }
 
 async function initialize() {
@@ -449,33 +745,41 @@ async function initialize() {
     setLoad(12, "加载物理引擎", "正在初始化 MuJoCo WebAssembly");
     mujoco = await loadMujoco();
 
-    setLoad(43, "读取机器人模型", "正在载入双段腱驱连续体 MJCF");
-    const modelBytes = await fetchModel();
-    try { mujoco.FS.mkdir("/working"); } catch (error) { /* Directory already exists. */ }
-    mujoco.FS.writeFile("/working/bronchoscope_web.xml", modelBytes);
+    setLoad(43, "读取完整机器人", "正在载入底座、推进机构、被动段、主动段与肺部碰撞模型");
+    await stageModelFiles();
     model = mujoco.MjModel.loadFromXML("/working/bronchoscope_web.xml");
     data = new mujoco.MjData(model);
     mujoco.mj_resetDataKeyframe(model, data, 0);
     mujoco.mj_forward(model, data);
 
-    actuatorIds = ["wire_1", "wire_2", "wire_3", "wire_4", "wire_5", "wire_6", "web_insertion_actuator"].map(actuatorId);
-    actuatorBaselines = actuatorIds.slice(0, 6).map((id) => (
-      (model.actuator_ctrlrange[id * 2] + model.actuator_ctrlrange[id * 2 + 1]) / 2
-    ));
+    actuatorIds = ["act_t1", "act_t2", "act_t3", "act_t4", "act_t5", "act_t6", "act_slid_M"].map(actuatorId);
+    actuatorBaselines = actuatorIds.slice(0, 6).map((id) => data.ctrl[id]);
     tipSiteId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE.value, "tip_center");
+    interfaceSiteId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE.value, "interface_center");
+    const insertionJointId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT.value, "slid_M");
+    insertionQposAddress = insertionJointId >= 0 ? model.jnt_qposadr[insertionJointId] : -1;
+    initializePassiveGuide();
+    initializePassiveFollower();
+    lungFlexId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_FLEX.value, "bronchial_wall_nonconvex");
+    if (lungFlexId < 0) throw new Error("模型中缺少肺部非凸碰撞面");
+    lungCollisionMasks = {
+      contype: model.flex_contype[lungFlexId],
+      conaffinity: model.flex_conaffinity[lungFlexId],
+    };
     if (tipSiteId < 0) throw new Error("模型中缺少 tip_center 站点");
+    if (interfaceSiteId < 0) throw new Error("模型中缺少 interface_center 站点");
 
     modelView = new MuJoCoGeometryView(scene);
     tendonView = new TendonView(scene);
     await loadLung();
 
     setLoad(96, "准备控制器", "正在连接双罗盘、插入轴与 tip camera");
+    state.ready = true;
     applyControls();
     modelView.sync();
     tendonView.sync();
     updateTipCamera();
 
-    state.ready = true;
     setControlsEnabled(true);
     $("#load-panel").hidden = true;
     $("#load-panel").style.display = "none";

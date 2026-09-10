@@ -12,6 +12,7 @@ Visual_information/outputs/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.playwright-cli/
 Visual_information/.ultralytics/
 Visual_information/.hf/
 .tmp/
