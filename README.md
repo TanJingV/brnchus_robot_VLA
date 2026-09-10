@@ -1,4 +1,4 @@
-# Bronchus Robot VLA
+# Bronchus Robot
 
 A two-section tendon-driven continuum bronchoscope research platform with
 MuJoCo simulation, manual control, centerline navigation and synchronized
