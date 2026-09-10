@@ -277,7 +277,7 @@ function setupScene() {
 }
 
 async function loadLung() {
-  setLoad(68, "加载肺部环境", "正在读取高分辨率支气管 STL");
+  setLoad(68, "Loading airway environment", "Reading the high-resolution bronchial STL");
   const geometry = await new STLLoader().loadAsync(LUNG_URL, (event) => {
     if (!event.total) return;
     const progress = 68 + Math.round((event.loaded / event.total) * 18);
@@ -364,8 +364,8 @@ class CompassControl {
     this.knob.style.transform = `translate(calc(-50% + ${Math.cos(direction) * distance}px), calc(-50% + ${Math.sin(direction) * distance}px))`;
 
     const bend = THREE.MathUtils.radToDeg(0.5 * MAX_BEND_RAD * Math.hypot(this.vector.x, this.vector.y) ** 2);
-    this.angleOutput.textContent = `${bend.toFixed(1)}°`;
-    this.directionOutput.textContent = bend < 0.1 ? "CENTER" : `${((THREE.MathUtils.radToDeg(-direction) + 360) % 360).toFixed(0)}°`;
+    this.angleOutput.textContent = `${bend.toFixed(1)} deg`;
+    this.directionOutput.textContent = bend < 0.1 ? "CENTER" : `${((THREE.MathUtils.radToDeg(-direction) + 360) % 360).toFixed(0)} deg`;
   }
 }
 
@@ -522,7 +522,7 @@ function initializePassiveGuide() {
   ];
   passiveGuideJoints = names.map((name, index) => {
     const jointId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT.value, name);
-    if (jointId < 0) throw new Error(`模型中缺少被动关节 ${name}`);
+    if (jointId < 0) throw new Error(`Passive joint missing from model: ${name}`);
     return {
       qpos: model.jnt_qposadr[jointId],
       dof: model.jnt_dofadr[jointId],
@@ -538,7 +538,7 @@ function initializePassiveFollower() {
   ];
   passiveFollowerJoints = names.map((name, index) => {
     const jointId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT.value, name);
-    if (jointId < 0) throw new Error(`模型中缺少被动跟随关节 ${name}`);
+    if (jointId < 0) throw new Error(`Passive follower joint missing from model: ${name}`);
     return {
       qpos: model.jnt_qposadr[jointId],
       dof: model.jnt_dofadr[jointId],
@@ -549,7 +549,7 @@ function initializePassiveFollower() {
   activeBaseBodyId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY.value, "active_tdcr_base");
   proximalEndBodyId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY.value, "seg2_body");
   if (activeBaseBodyId < 0 || proximalEndBodyId < 0) {
-    throw new Error("模型中缺少主动段被动跟随参考体");
+    throw new Error("Active-segment reference bodies are missing from the model.");
   }
 }
 
@@ -601,11 +601,12 @@ function setLungEnabled(enabled) {
   state.lungVisible = enabled;
   lungGroup.visible = enabled;
   if (lungFlexId >= 0 && lungCollisionMasks) {
-    model.flex_contype[lungFlexId] = enabled ? lungCollisionMasks.contype : 0;
-    model.flex_conaffinity[lungFlexId] = enabled ? lungCollisionMasks.conaffinity : 0;
+    // The visual surface is optional, but the airway wall is an invariant boundary.
+    model.flex_contype[lungFlexId] = lungCollisionMasks.contype;
+    model.flex_conaffinity[lungFlexId] = lungCollisionMasks.conaffinity;
   }
   mujoco.mj_forward(model, data);
-  $("#toggle-lung").textContent = `肺部：${enabled ? "显示" : "隐藏"}`;
+  $("#toggle-lung").textContent = `Airway view: ${enabled ? "on" : "off"}`;
   $("#toggle-lung").classList.toggle("active", enabled);
   $("#toggle-lung").setAttribute("aria-pressed", String(enabled));
 }
@@ -618,8 +619,8 @@ function setupControls() {
   });
   $("#pause-sim").addEventListener("click", () => {
     state.paused = !state.paused;
-    $("#pause-sim").textContent = state.paused ? "继续仿真" : "暂停仿真";
-    setRuntime(state.paused ? "已暂停" : "实时运行", state.paused ? "" : "ready");
+    $("#pause-sim").textContent = state.paused ? "Resume simulation" : "Pause simulation";
+    setRuntime(state.paused ? "Paused" : "Running live", state.paused ? "" : "ready");
   });
   $("#reset-sim").addEventListener("click", resetSimulation);
   $("#toggle-lung").addEventListener("click", () => {
@@ -630,13 +631,13 @@ function setupControls() {
     filteredActiveRotation.set(0, 0, 0);
     enforcePassiveBaseGuide();
     mujoco.mj_forward(model, data);
-    $("#toggle-passive-lock").textContent = `被动段：${state.passiveDebugLocked ? "锁定" : "跟随"}`;
+    $("#toggle-passive-lock").textContent = `Passive section: ${state.passiveDebugLocked ? "locked" : "follow"}`;
     $("#toggle-passive-lock").classList.toggle("active", state.passiveDebugLocked);
     $("#toggle-passive-lock").setAttribute("aria-pressed", String(state.passiveDebugLocked));
   });
   $("#focus-tip").addEventListener("click", () => {
     state.followTip = !state.followTip;
-    $("#focus-tip").textContent = state.followTip ? "停止跟随" : "跟随末端";
+    $("#focus-tip").textContent = state.followTip ? "Stop following" : "Follow tip";
     $("#focus-tip").classList.toggle("active", state.followTip);
   });
   $("#retry-sim").addEventListener("click", () => location.reload());
@@ -732,7 +733,7 @@ async function stageModelFiles() {
   ];
   await Promise.all(files.map(async ({ path, url }) => {
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`${path} 下载失败（HTTP ${response.status}）`);
+    if (!response.ok) throw new Error(`Failed to download ${path} (HTTP ${response.status})`);
     const bytes = new Uint8Array(await response.arrayBuffer());
     mujoco.FS.writeFile(`/working/${path}`, bytes);
   }));
@@ -742,10 +743,10 @@ async function initialize() {
   try {
     setControlsEnabled(false);
     setupScene();
-    setLoad(12, "加载物理引擎", "正在初始化 MuJoCo WebAssembly");
+    setLoad(12, "Loading physics engine", "Initializing MuJoCo WebAssembly");
     mujoco = await loadMujoco();
 
-    setLoad(43, "读取完整机器人", "正在载入底座、推进机构、被动段、主动段与肺部碰撞模型");
+    setLoad(43, "Loading the complete robot", "Staging the base, insertion mechanism, passive conduit, active segments, and airway collision model");
     await stageModelFiles();
     model = mujoco.MjModel.loadFromXML("/working/bronchoscope_web.xml");
     data = new mujoco.MjData(model);
@@ -761,19 +762,19 @@ async function initialize() {
     initializePassiveGuide();
     initializePassiveFollower();
     lungFlexId = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_FLEX.value, "bronchial_wall_nonconvex");
-    if (lungFlexId < 0) throw new Error("模型中缺少肺部非凸碰撞面");
+    if (lungFlexId < 0) throw new Error("The non-convex airway collision boundary is missing from the model.");
     lungCollisionMasks = {
       contype: model.flex_contype[lungFlexId],
       conaffinity: model.flex_conaffinity[lungFlexId],
     };
-    if (tipSiteId < 0) throw new Error("模型中缺少 tip_center 站点");
-    if (interfaceSiteId < 0) throw new Error("模型中缺少 interface_center 站点");
+    if (tipSiteId < 0) throw new Error("The tip_center site is missing from the model.");
+    if (interfaceSiteId < 0) throw new Error("The interface_center site is missing from the model.");
 
     modelView = new MuJoCoGeometryView(scene);
     tendonView = new TendonView(scene);
     await loadLung();
 
-    setLoad(96, "准备控制器", "正在连接双罗盘、插入轴与 tip camera");
+    setLoad(96, "Preparing controls", "Connecting the dual compasses, insertion axis, and tip camera");
     state.ready = true;
     applyControls();
     modelView.sync();
@@ -783,7 +784,7 @@ async function initialize() {
     setControlsEnabled(true);
     $("#load-panel").hidden = true;
     $("#load-panel").style.display = "none";
-    setRuntime("实时运行", "ready");
+    setRuntime("Running live", "ready");
     lastFrame = performance.now();
   } catch (error) {
     console.error(error);
@@ -791,7 +792,7 @@ async function initialize() {
     $("#load-panel").style.display = "none";
     $("#scene-error").hidden = false;
     $("#error-message").textContent = error?.message || String(error);
-    setRuntime("启动失败", "error");
+    setRuntime("Startup failed", "error");
   }
 }
 

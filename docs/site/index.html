@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="浏览器内运行的双段腱驱连续体支气管镜 MuJoCo 仿真与交互控制平台。">
+  <meta name="description" content="An interactive MuJoCo twin for multimodal dynamics grounding and predictive control of a dual-segment tendon-driven continuum bronchoscope.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <title>Bronchoscope MuJoCo · Web Simulation</title>
+  <title>BronchoTwin - Multimodal Dynamics Grounding</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=5">
   <script type="importmap">
     {
       "imports": {
@@ -19,94 +19,103 @@
 </head>
 <body>
   <header class="site-nav">
-    <a class="wordmark" href="#top" aria-label="回到页首">BRONCHOSCOPE <span>·</span> MUJOCO</a>
-    <nav aria-label="主导航">
+    <a class="wordmark" href="#top" aria-label="Back to top">BRONCHOTWIN <span>/</span> MUJOCO</a>
+    <nav aria-label="Primary navigation">
       <a href="#simulation">Simulation</a>
-      <a href="#abstract">Abstract</a>
-      <a href="#model">Model</a>
-      <a href="https://github.com/TanJingV/brnchus_robot_VLA">Code ↗</a>
+      <a href="#overview">Overview</a>
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="https://github.com/TanJingV/brnchus_robot_VLA">GitHub</a>
     </nav>
   </header>
 
   <main id="top">
     <section class="paper-hero">
-      <p class="venue">ICRA MANUSCRIPT IN PREPARATION · INTERACTIVE PROJECT PAGE</p>
-      <h1>Dual-Section Tendon-Driven<br>Continuum Bronchoscope</h1>
-      <p class="subtitle">基于 MuJoCo 的双段腱驱连续体支气管镜建模、控制与腔道导航平台</p>
-      <p class="affiliation">Bronchoscope Continuum Robotics Project</p>
+      <p class="venue">ICRA MANUSCRIPT IN PREPARATION / INTERACTIVE PROJECT PAGE</p>
+      <h1>Multimodal Dynamics Grounding for an Actionable World Model of a Dual-Segment Tendon-Driven Continuum Robot</h1>
+      <p class="subtitle">A physics-grounded MuJoCo twin that preserves measured mechanics while adapting its action-response dynamics from multimodal physical observations.</p>
+      <p class="affiliation">Dual-Segment Robotic Bronchoscope Research Platform</p>
       <div class="hero-links">
-        <a href="#simulation"><span class="link-icon">▶</span> Live simulation</a>
-        <a href="https://github.com/TanJingV/brnchus_robot_VLA"><span class="link-icon">⌘</span> Source code</a>
-        <a href="sim/bronchoscope_web.xml" download><span class="link-icon">↓</span> Web MJCF</a>
+        <a href="#simulation"><span class="link-icon">01</span> Live simulation</a>
+        <a href="https://github.com/TanJingV/brnchus_robot_VLA"><span class="link-icon">02</span> Source code</a>
+        <a href="sim/bronchoscope_web.xml" download><span class="link-icon">03</span> Web MJCF</a>
+      </div>
+      <p class="hero-statement">Ground the dynamics. Predict the response. Execute with confidence.</p>
+      <div class="hero-metrics" aria-label="Key project metrics">
+        <div><b>3.5 mm</b><span>robot diameter</span></div>
+        <div><b>12</b><span>bounded dynamics parameters</span></div>
+        <div><b>65</b><span>terminal airway paths</span></div>
+        <div><b>1.15 mm</b><span>median branch-wise RMSE</span></div>
       </div>
     </section>
 
     <section id="simulation" class="section simulation-section">
       <div class="section-title">
         <p class="kicker">INTERACTIVE DEMO</p>
-        <h2>MuJoCo Bronchoscope Control</h2>
-        <p>拖动双罗盘控制两段连续体，使用插入滑块推进机器人。物理由浏览器内 MuJoCo WebAssembly 实时求解。</p>
+        <h2>Operate the physics-grounded MuJoCo twin</h2>
+        <p>Drag either compass to command the two bending segments, then use the insertion slider to advance the robot. The non-convex airway wall remains an active physical boundary at all times.</p>
       </div>
 
       <div class="sim-window" id="sim-window">
         <div class="window-bar">
           <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
           <strong>bronchoscope_web.xml</strong>
-          <div class="runtime-state"><span id="runtime-dot"></span><span id="runtime-state">正在初始化</span></div>
+          <div class="runtime-state"><span id="runtime-dot"></span><span id="runtime-state">Initializing</span></div>
         </div>
 
         <div class="sim-layout">
           <div class="scene-column">
-            <div class="scene-stage" id="scene-stage" tabindex="0" aria-label="MuJoCo 三维仿真视窗">
+            <div class="scene-stage" id="scene-stage" tabindex="0" aria-label="Interactive MuJoCo three-dimensional simulation">
               <canvas id="mujoco-canvas"></canvas>
               <div class="scene-badge"><span>LIVE</span> MuJoCo / WebAssembly</div>
-              <div class="view-help">左键旋转 · 右键平移 · 滚轮缩放</div>
+              <div class="boundary-badge"><i></i>AIRWAY WALL CONSTRAINT ACTIVE</div>
+              <div class="view-help">Left drag: orbit / Right drag: pan / Wheel: zoom</div>
               <div class="load-panel" id="load-panel">
                 <div class="loader-mark"><span></span><span></span><span></span></div>
-                <strong id="load-title">加载物理引擎</strong>
-                <p id="load-detail">首次打开需下载 MuJoCo WASM 与肺部模型</p>
+                <strong id="load-title">Loading physics engine</strong>
+                <p id="load-detail">The first launch downloads MuJoCo WebAssembly and the full airway model.</p>
                 <div class="load-track"><i id="load-progress"></i></div>
               </div>
               <div class="scene-error" id="scene-error" hidden>
-                <strong>仿真未能启动</strong>
+                <strong>Simulation could not start</strong>
                 <p id="error-message"></p>
-                <button class="control-button primary" id="retry-sim">重新加载</button>
+                <button class="control-button primary" id="retry-sim">Reload simulation</button>
               </div>
             </div>
             <div class="telemetry" aria-live="polite">
               <div><span>SIM TIME</span><b id="sim-time">0.00 s</b></div>
-              <div><span>TIP X</span><b id="tip-x">—</b></div>
-              <div><span>TIP Y</span><b id="tip-y">—</b></div>
-              <div><span>TIP Z</span><b id="tip-z">—</b></div>
+              <div><span>TIP X</span><b id="tip-x">--</b></div>
+              <div><span>TIP Y</span><b id="tip-y">--</b></div>
+              <div><span>TIP Z</span><b id="tip-z">--</b></div>
               <div><span>CONTACTS</span><b id="contacts">0</b></div>
             </div>
           </div>
 
-          <aside class="control-rail" aria-label="仿真控制">
+          <aside class="control-rail" aria-label="Simulation controls">
             <div class="tip-card">
-              <div class="control-heading"><span>TIP CAMERA</span><em>REAL-TIME</em></div>
-              <canvas id="tip-canvas" aria-label="末端相机实时画面"></canvas>
+              <div class="control-heading"><span>TIP CAMERA</span><em>REAL TIME</em></div>
+              <canvas id="tip-canvas" aria-label="Real-time distal tip camera"></canvas>
             </div>
 
             <div class="comp-grid">
               <section class="compass-card">
-                <div class="control-heading"><span>PROXIMAL</span><em>WIRE 1–3</em></div>
-                <div class="compass-pad magenta" id="proximal-pad" role="application" tabindex="0" aria-label="近端段罗盘，拖动或使用方向键控制">
+                <div class="control-heading"><span>PROXIMAL</span><em>WIRES 1-3</em></div>
+                <div class="compass-pad magenta" id="proximal-pad" role="application" tabindex="0" aria-label="Proximal segment compass. Drag or use the arrow keys.">
                   <i class="axis horizontal"></i><i class="axis vertical"></i>
                   <span class="wire w1">W1</span><span class="wire w2">W2</span><span class="wire w3">W3</span>
                   <button class="compass-knob" tabindex="-1" aria-hidden="true"></button>
                 </div>
-                <div class="compass-readout"><b id="proximal-angle">0.0°</b><span id="proximal-direction">CENTER</span></div>
+                <div class="compass-readout"><b id="proximal-angle">0.0 deg</b><span id="proximal-direction">CENTER</span></div>
               </section>
 
               <section class="compass-card">
-                <div class="control-heading"><span>DISTAL</span><em>WIRE 4–6</em></div>
-                <div class="compass-pad orange" id="distal-pad" role="application" tabindex="0" aria-label="远端段罗盘，拖动或使用键盘控制">
+                <div class="control-heading"><span>DISTAL</span><em>WIRES 4-6</em></div>
+                <div class="compass-pad orange" id="distal-pad" role="application" tabindex="0" aria-label="Distal segment compass. Drag or use the arrow keys.">
                   <i class="axis horizontal"></i><i class="axis vertical"></i>
                   <span class="wire w4">W4</span><span class="wire w5">W5</span><span class="wire w6">W6</span>
                   <button class="compass-knob" tabindex="-1" aria-hidden="true"></button>
                 </div>
-                <div class="compass-readout"><b id="distal-angle">0.0°</b><span id="distal-direction">CENTER</span></div>
+                <div class="compass-readout"><b id="distal-angle">0.0 deg</b><span id="distal-direction">CENTER</span></div>
               </section>
             </div>
 
@@ -117,54 +126,147 @@
             </div>
 
             <div class="button-grid">
-              <button class="control-button primary" id="pause-sim" disabled>暂停仿真</button>
-              <button class="control-button" id="reset-sim" disabled>复位模型</button>
-              <button class="control-button active" id="toggle-lung" aria-pressed="true" disabled>肺部：显示</button>
-              <button class="control-button" id="toggle-passive-lock" aria-pressed="false" disabled>被动段：跟随</button>
-              <button class="control-button" id="focus-tip" disabled>跟随末端</button>
+              <button class="control-button primary" id="pause-sim" disabled>Pause simulation</button>
+              <button class="control-button" id="reset-sim" disabled>Reset model</button>
+              <button class="control-button active" id="toggle-lung" aria-pressed="true" disabled>Airway view: on</button>
+              <button class="control-button" id="toggle-passive-lock" aria-pressed="false" disabled>Passive section: follow</button>
+              <button class="control-button" id="focus-tip" disabled>Follow tip</button>
             </div>
 
             <div class="runtime-note">
               <span class="pulse"></span>
-              <p><b>Simulation-only build</b><br>本网页仅部署仿真环境功能；桌面硬件与真实传感器接口不在浏览器中运行。</p>
+              <p><b>Airway boundary enforced</b><br>The red airway surface may be hidden for inspection, but its rigid non-convex collision boundary always remains active.</p>
             </div>
           </aside>
         </div>
       </div>
-      <p class="figure-caption"><b>Interactive demo.</b> Web 场景直接派生自桌面端完整 MJCF，包含底座、577 mm 滑台、被动导管、双主动段、6 根空间腱、tip camera 与刚性非凸肺部碰撞面。视觉肺部保持半透明，碰撞面由 MuJoCo WebAssembly 独立参与物理解算。</p>
+      <p class="figure-caption"><b>Interactive MuJoCo twin.</b> The browser scene is generated from the complete desktop MJCF: base mechanism, 577 mm insertion stage, passive conduit, two active segments, six routed tendons, tip camera, and rigid non-convex airway collision geometry. The airway mesh bounds the lumen and prevents the continuum robot from crossing the inner wall.</p>
     </section>
 
-    <section id="abstract" class="section prose-section">
+    <section id="overview" class="section prose-section">
       <p class="kicker">ABSTRACT</p>
-      <h2>从连续体建模到可交互腔道导航</h2>
-      <p class="abstract-copy">本项目研究一种面向支气管腔道导航的双段腱驱连续体机器人。参数化 MuJoCo 模型将两段主动结构离散为正交转动关节，通过六根空间腱表达驱动与段间耦合，并将被动导管、插入运动、肺部环境和 tip camera 统一在同一仿真工作流中。研究平台进一步连接罗盘／手柄控制、中心线路径、自动导航与同步数据记录，为运动学控制、接触调试和视觉导航研究提供可复现基础。</p>
+      <h2>An actionable dynamics world model for pulmonary intervention</h2>
+      <p class="abstract-copy">Autonomous pulmonary intervention with continuum robots remains constrained by the absence of an online dynamics representation that preserves mechanical structure while adapting simulated responses to changes in physical tendon transmission. We develop an actionable dynamics world model for a dual-segment tendon-driven continuum robot. Its MuJoCo representation captures measured geometry, compliant mechanics, tendon routing, actuator transmission, and airway contact. Multimodal grounding integrates distributed shape observations, two electromagnetic sensor poses, motor feedback, and command history. MDS-Net combines structural encoding, an actuation delay mask, and causal temporal inference to estimate curvature, effective parameters, residuals, and model confidence. Confidence and observability regulate gradual parameter adaptation, while grounded response maps support command transfer and state-dependent decoupling.</p>
+
+      <figure class="paper-figure wide">
+        <img src="assets/paper-framework.png" alt="Closed-loop multimodal dynamics grounding and model-mediated execution framework" loading="lazy">
+        <figcaption><b>Framework overview.</b> Multimodal observations ground the MuJoCo dynamics state and bounded parameters. Counterfactual rollouts guide predictive control, and physical feedback closes the Real-to-Sim-to-Real loop.</figcaption>
+      </figure>
+    </section>
+
+    <section class="section contribution-section">
+      <p class="kicker">CONTRIBUTIONS</p>
+      <h2>Structure-preserving simulation, online grounding, and predictive execution</h2>
       <div class="contribution-grid">
-        <article><b>01</b><h3>Coupled TDCR model</h3><p>双主动段、六腱连续走线和可调被动导管组成统一机器人模型。</p></article>
-        <article><b>02</b><h3>Interactive control</h3><p>近端、远端罗盘与插入轴直接映射到 tendon 和 slider actuator。</p></article>
-        <article><b>03</b><h3>Browser simulation</h3><p>MuJoCo WebAssembly、双视角渲染与实时遥测组成可复现的在线仿真环境。</p></article>
+        <article><b>01</b><h3>Physics-grounded world model</h3><p>A dual-segment MuJoCo representation preserves measured geometry and tendon topology while exposing bounded transmission and coupling dynamics for rapid rollouts.</p></article>
+        <article><b>02</b><h3>Multimodal dynamics synchronization</h3><p>MDS-Net aligns distributed shape, dual EM poses, motor feedback, and delayed command history. Confidence and observability gate accepted state and parameter updates.</p></article>
+        <article><b>03</b><h3>Model-mediated execution</h3><p>Grounded response maps support state-dependent decoupling, short-horizon prediction, command transfer, and closed-loop physical operation.</p></article>
       </div>
     </section>
 
-    <section id="model" class="section model-section">
+    <section id="method" class="section model-section">
       <div class="section-title split">
-        <div><p class="kicker">SYSTEM MODEL</p><h2>Two sections. Six tendons. One continuous instrument.</h2></div>
-        <p>每个 21 mm 主动段包含 12 个离散弯曲站；W1–W3 驱动近端段，W4–W6 贯穿两段并驱动远端段。</p>
+        <div><p class="kicker">PHYSICS-GROUNDED MODEL</p><h2>Measured mechanics remain explicit inside the twin</h2></div>
+        <p>The 3.5 mm robot combines two 21 mm compliant segments, six independently routed tendons, rigid transition sections, a passive conduit, and a seventh motor for linear insertion.</p>
       </div>
-      <figure class="model-figure">
-        <img src="assets/model.png" alt="双段连续体支气管镜模型尺寸、离散关节和六根腱线布局" loading="lazy">
-        <figcaption><b>Model overview.</b> 54 mm 末端组件由两个 21 mm 主动段、6 mm 段间连接和 6 mm 远端头组成，外径 3.5 mm。</figcaption>
+      <div class="paper-grid">
+        <figure class="paper-figure">
+          <img src="assets/paper-model.png" alt="Dual-segment continuum robot model, cross-section, tendon layout, and discretization" loading="lazy">
+          <figcaption><b>Robot model.</b> Rigid capsules, compliant multi-axis joints, tendon centerlines, and collision capsules reproduce the physical transmission topology and airway contact.</figcaption>
+        </figure>
+        <div class="method-copy">
+          <p>The proximal and distal bending segments are represented as compliant rigid-body chains. Each segment is actuated by three tendons separated by 120 degrees. Because the distal tendons traverse the proximal segment, a distal command also loads the proximal section; the simulator retains this coupling rather than absorbing it into a purely geometric correction.</p>
+          <div class="parameter-card">
+            <span>ONLINE DYNAMICS STATE</span>
+            <code>K1, K2</code><small>segment stiffness</small>
+            <code>D1, D2</code><small>segment damping</small>
+            <code>mu1, mu2</code><small>effective transmission</small>
+            <code>T0,1, T0,2</code><small>pretension</small>
+            <code>b1, b2</code><small>direction-dependent response</small>
+            <code>C12, C21</code><small>intersegment coupling</small>
+          </div>
+          <p>Geometry and routing remain fixed after calibration. Online synchronization updates the simulator state and these 12 bounded effective parameters without altering the physical topology.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section network-section">
+      <div class="section-title">
+        <p class="kicker">MDS-NET</p>
+        <h2>Delay-aware fusion for online dynamics grounding</h2>
+        <p>A causal window of 31 samples links observations to the actuation history that could physically have produced them.</p>
+      </div>
+      <figure class="paper-figure wide">
+        <img src="assets/paper-mds-net.png" alt="MDS-Net architecture for multimodal dynamics synchronization" loading="lazy">
+        <figcaption><b>MDS-Net architecture.</b> Skeleton-constrained encoders preserve spatial structure, delay-aware cross-modal attention aligns sensing with tendon transmission, and four causal temporal blocks infer curvature, bounded dynamics updates, residual correction, and synchronization confidence.</figcaption>
+      </figure>
+    </section>
+
+    <section class="section validation-section">
+      <div class="paper-grid reverse">
+        <div class="method-copy">
+          <p class="kicker">EXPERIMENTAL VALIDATION</p>
+          <h2>A shared clock from sensing to execution</h2>
+          <p>The platform combines seven motor drives, tendon displacement sensing, two EM probes, an RGB-D camera, distributed shape markers, and a transparent lung phantom. A workstation synchronizes acquisition, control, and simulation.</p>
+          <p>Two protocols evaluate the system: an 80 s shared-command sequence for online Real-to-Sim grounding, and model-mediated visual servoing through terminal airway paths for Sim-to-Real execution.</p>
+        </div>
+        <figure class="paper-figure">
+          <img src="assets/paper-platform.png" alt="Experimental robotic bronchoscope platform and synchronized sensing hardware" loading="lazy">
+          <figcaption><b>Experimental platform.</b> The annotated 692 mm covers the active and passive continuum length and the maximum insertion stroke.</figcaption>
+        </figure>
+      </div>
+      <figure class="paper-figure wide feature-figure">
+        <img src="assets/paper-grounding.png" alt="Physical and simulated configurations during shared-command Real-to-Sim grounding" loading="lazy">
+        <figcaption><b>Shared-command grounding.</b> Identical Motor1-Motor7 commands drive the physical robot and MuJoCo through insertion, distal bending, proximal bending, and coordinated dual-segment motion.</figcaption>
+      </figure>
+    </section>
+
+    <section id="results" class="section results-section">
+      <div class="section-title">
+        <p class="kicker">RESULTS</p>
+        <h2>The twin converges while preserving control relevance</h2>
+        <p>Online grounding reduces model discrepancy and maintains an actionable simulation across increasingly deep airway navigation.</p>
+      </div>
+      <div class="result-cards">
+        <article><b>50%</b><span>lower final-window mean position error</span><small>3.0 to 1.44 mm over the 80 s sequence</small></article>
+        <article><b>0.91</b><span>final synchronization confidence</span><small>with accepted update activity reduced to 0.05</small></article>
+        <article><b>1.15 mm</b><span>median branch-wise position RMSE</span><small>evaluated across 65 terminal airway paths</small></article>
+        <article><b>r = 0.83</b><span>error correlation with path length</span><small>capturing increased difficulty in deeper navigation</small></article>
+      </div>
+
+      <figure class="paper-figure wide feature-figure">
+        <img src="assets/paper-adaptation.png" alt="Accepted dynamics parameters, model error, confidence, and update activity during online synchronization" loading="lazy">
+        <figcaption><b>Online adaptation.</b> Accepted parameters evolve gradually. Error falls, twin confidence rises, and update activity diminishes as synchronization stabilizes.</figcaption>
+      </figure>
+
+      <p class="result-statement">Across 65 terminal paths, the grounded model stays close enough to the physical robot to support action-conditioned prediction and command transfer.</p>
+
+      <figure class="paper-figure wide">
+        <img src="assets/paper-navigation.png" alt="Chronological physical and simulated states during a complete B12 airway navigation trial" loading="lazy">
+        <figcaption><b>Complete B12 trial.</b> Physical and simulated states are paired from tracheal entrance through branch insertion, deep navigation, and retraction.</figcaption>
+      </figure>
+      <figure class="paper-figure wide feature-figure">
+        <img src="assets/paper-branches.png" alt="Real-to-Sim position consistency across 65 terminal airway paths" loading="lazy">
+        <figcaption><b>Terminal-path consistency.</b> Median branch-wise position RMSE is 1.15 mm. Error increases with root-to-terminal path length while remaining spatially structured across the airway tree.</figcaption>
       </figure>
     </section>
 
     <section class="section citation-section">
-      <p class="kicker">PAPER & CODE</p>
+      <p class="kicker">PAPER AND CODE</p>
       <h2>Research in progress</h2>
-      <p>关联 ICRA 论文仍在准备中，尚未发表。论文标题、作者列表、预印本和引用信息将在正式公开后更新；当前仓库提供完整研究程序、模型、控制模块与网页仿真代码。</p>
-      <div class="citation-links"><a class="pill-link dark" href="https://github.com/TanJingV/brnchus_robot_VLA">View full repository ↗</a><a class="pill-link" href="https://github.com/TanJingV/brnchus_robot_VLA/issues">Report an issue ↗</a></div>
+      <p>The associated ICRA manuscript is in preparation and has not yet been published. The title, author list, preprint, and citation record will be updated when the manuscript is made public. The repository currently provides the complete research software, MuJoCo model, control modules, and browser simulation.</p>
+      <div class="citation-links">
+        <a class="pill-link dark" href="https://github.com/TanJingV/brnchus_robot_VLA">View repository</a>
+        <a class="pill-link" href="https://github.com/TanJingV/brnchus_robot_VLA/issues">Report an issue</a>
+      </div>
     </section>
   </main>
 
-  <footer><a class="wordmark" href="#top">BRONCHOSCOPE · MUJOCO</a><p>Interactive simulation built with MuJoCo WebAssembly and Three.js. Research code and assets are maintained in the project repository.</p><a href="https://continuumroboticslab.github.io/opencr-mujoco/">Design reference ↗</a></footer>
-  <script type="module" src="simulator.js?v=4"></script>
+  <footer>
+    <a class="wordmark" href="#top">BRONCHOTWIN / MUJOCO</a>
+    <p>Interactive physics-grounded simulation for a dual-segment robotic bronchoscope.</p>
+    <a href="https://continuumroboticslab.github.io/opencr-mujoco/">Design reference</a>
+  </footer>
+  <script type="module" src="simulator.js?v=6"></script>
 </body>
 </html>

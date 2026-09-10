@@ -46,19 +46,25 @@ button, input, select { font: inherit; }
 
 main { overflow: hidden; }
 .paper-hero {
-  max-width: 1050px;
+  max-width: 1180px;
   margin: auto;
   padding: 88px 28px 76px;
   background: radial-gradient(circle at 50% 5%, rgba(74, 144, 255, .12), transparent 42%);
   text-align: center;
 }
 .venue, .kicker { margin: 0; color: var(--blue); font: 700 11px "SFMono-Regular", Consolas, monospace; letter-spacing: .15em; }
-h1 { margin: 24px 0 17px; font: 600 clamp(42px, 6.2vw, 73px)/1.04 "Iowan Old Style", "Palatino Linotype", "Songti SC", serif; letter-spacing: -.042em; }
+h1 { max-width: 1080px; margin: 24px auto 20px; font: 600 clamp(36px, 5.1vw, 61px)/1.03 "Iowan Old Style", "Palatino Linotype", Georgia, serif; letter-spacing: -.042em; text-wrap: balance; }
 .subtitle { margin: 0; color: #4f5f79; font-size: clamp(16px, 2vw, 21px); }
 .affiliation { margin: 25px 0 0; color: #758299; font-size: 13px; }
 .hero-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 36px; }
 .hero-links a { display: flex; min-width: 145px; align-items: center; gap: 10px; padding: 10px 16px; border: 1px solid #d5ddea; border-radius: 9px; background: #fff; box-shadow: 0 6px 18px rgba(31, 50, 82, .05); font-size: 13px; font-weight: 650; }
 .link-icon { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; background: #eaf1ff; color: #275ec8; font-size: 11px; }
+.hero-statement { margin: 49px auto 25px; background: linear-gradient(96deg, #1673ed 25%, #8f5bd8 55%, #ef4e9b 82%); background-clip: text; color: transparent; font: 700 clamp(23px, 3.4vw, 38px)/1.2 "Avenir Next", "Segoe UI", sans-serif; letter-spacing: -.025em; text-wrap: balance; }
+.hero-metrics { display: grid; grid-template-columns: repeat(4, 1fr); max-width: 900px; margin: 34px auto 0; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, .82); box-shadow: 0 13px 40px rgba(31, 50, 82, .07); }
+.hero-metrics div { display: flex; min-height: 88px; align-items: center; justify-content: center; flex-direction: column; padding: 14px; border-right: 1px solid var(--line); }
+.hero-metrics div:last-child { border-right: 0; }
+.hero-metrics b { color: #244a8e; font: 650 22px "Iowan Old Style", Georgia, serif; }
+.hero-metrics span { margin-top: 4px; color: #728096; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 
 .section { width: min(1180px, calc(100% - 56px)); margin: auto; padding: 77px 0; border-top: 1px solid var(--line); }
 .simulation-section { width: min(1320px, calc(100% - 40px)); padding-top: 60px; border: 0; }
@@ -95,6 +101,8 @@ h1 { margin: 24px 0 17px; font: 600 clamp(42px, 6.2vw, 73px)/1.04 "Iowan Old Sty
 .scene-badge, .view-help { position: absolute; z-index: 3; color: #bcc7d7; font: 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; pointer-events: none; }
 .scene-badge { top: 18px; left: 20px; }
 .scene-badge span { margin-right: 7px; padding: 3px 7px; border-radius: 12px; background: rgba(98, 209, 143, .15); color: #7ee5a7; }
+.boundary-badge { position: absolute; z-index: 3; top: 17px; right: 19px; display: flex; align-items: center; gap: 7px; padding: 5px 9px; border: 1px solid rgba(98, 209, 143, .28); border-radius: 20px; background: rgba(10, 24, 34, .64); color: #93e7b6; font: 700 8px "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; pointer-events: none; }
+.boundary-badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(98, 209, 143, .11); }
 .view-help { right: 20px; bottom: 18px; color: #8795a9; }
 .load-panel, .scene-error { position: absolute; z-index: 4; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; background: rgba(16, 24, 39, .94); color: #e7edf6; text-align: center; }
 .load-panel > strong, .scene-error > strong { font-size: 18px; }
@@ -156,6 +164,31 @@ h1 { margin: 24px 0 17px; font: 600 clamp(42px, 6.2vw, 73px)/1.04 "Iowan Old Sty
 .contribution-grid article > b { color: var(--blue); font: 700 11px "SFMono-Regular", Consolas, monospace; }
 .contribution-grid h3 { margin: 13px 0 8px; font-size: 16px; }
 .contribution-grid p { margin: 0; color: #647188; font-size: 13px; }
+.contribution-section { text-align: center; }
+.contribution-section > h2 { max-width: 850px; margin: 10px auto 35px; font: 600 clamp(30px, 4vw, 45px)/1.18 "Iowan Old Style", Georgia, serif; letter-spacing: -.025em; }
+.paper-figure { margin: 0; }
+.paper-figure img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.paper-figure figcaption { margin: 11px 8px 0; color: #6d788b; font-size: 11px; line-height: 1.6; text-align: left; }
+.paper-figure figcaption b { color: #39485f; }
+.paper-figure.wide { max-width: 1080px; margin: 44px auto 0; }
+.paper-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); align-items: center; gap: 58px; margin-top: 35px; }
+.paper-grid.reverse { grid-template-columns: minmax(0, 1fr) minmax(0, .92fr); }
+.method-copy { color: #536078; font-size: 14px; line-height: 1.85; }
+.method-copy h2 { margin: 9px 0 18px; color: var(--ink); font: 600 clamp(30px, 4vw, 44px)/1.16 "Iowan Old Style", Georgia, serif; letter-spacing: -.025em; }
+.method-copy p { margin: 0 0 20px; }
+.parameter-card { display: grid; grid-template-columns: 90px 1fr; gap: 8px 15px; margin: 24px 0; padding: 22px; border: 1px solid #d8e0ec; border-radius: 12px; background: linear-gradient(145deg, #f5f8fd, #fff); }
+.parameter-card > span { grid-column: 1 / -1; margin-bottom: 6px; color: #2b63c8; font: 700 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; }
+.parameter-card code { color: #24344d; font: 650 12px "SFMono-Regular", Consolas, monospace; }
+.parameter-card small { color: #728096; font-size: 11px; }
+.network-section, .results-section { width: min(1240px, calc(100% - 56px)); }
+.validation-section { width: min(1120px, calc(100% - 56px)); }
+.feature-figure { margin-top: 58px !important; }
+.result-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; margin-top: 38px; }
+.result-cards article { display: flex; min-height: 178px; align-items: center; justify-content: center; flex-direction: column; padding: 23px; border: 1px solid #dce3ee; border-radius: 13px; background: linear-gradient(145deg, #f7f9fd, #fff); text-align: center; }
+.result-cards b { background: linear-gradient(100deg, #146ee8, #a94fd2); background-clip: text; color: transparent; font: 700 31px "Iowan Old Style", Georgia, serif; }
+.result-cards span { margin: 11px 0 6px; color: #26364f; font-size: 13px; font-weight: 700; line-height: 1.35; }
+.result-cards small { color: #758299; font-size: 10px; line-height: 1.5; }
+.result-statement { max-width: 800px; margin: 70px auto 15px; background: linear-gradient(98deg, #146ee8, #9459d6 55%, #ed528e); background-clip: text; color: transparent; font: 700 clamp(24px, 3.5vw, 39px)/1.25 "Avenir Next", "Segoe UI", sans-serif; text-align: center; text-wrap: balance; }
 .model-figure { margin: 32px 0 0; }
 .model-figure img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 13px; background: #fafbfc; }
 .citation-section { text-align: center; }
@@ -192,6 +225,11 @@ footer > a:last-child { text-align: right; }
   .split { display: block; }
   .split > p { max-width: 680px !important; }
   .contribution-grid { grid-template-columns: 1fr; }
+  .paper-grid, .paper-grid.reverse { grid-template-columns: 1fr; }
+  .result-cards { grid-template-columns: 1fr 1fr; }
+  .hero-metrics { grid-template-columns: 1fr 1fr; }
+  .hero-metrics div:nth-child(2) { border-right: 0; }
+  .hero-metrics div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   footer { grid-template-columns: 1fr; text-align: center; }
   footer > a:last-child { text-align: center; }
 }
@@ -216,6 +254,11 @@ footer > a:last-child { text-align: right; }
   .abstract-copy { font-size: 16px; }
   .citation-links { flex-direction: column; }
   .runtime-note { display: none; }
+  .boundary-badge { top: 49px; right: 12px; }
+  .hero-metrics { grid-template-columns: 1fr; }
+  .hero-metrics div { border-right: 0; border-bottom: 1px solid var(--line); }
+  .hero-metrics div:last-child { border-bottom: 0; }
+  .result-cards { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
