@@ -4,7 +4,7 @@ import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import loadMujoco from "./vendor/mujoco_wasm.js";
 
 const $ = (selector) => document.querySelector(selector);
-const ASSET_VERSION = "23";
+const ASSET_VERSION = "24";
 const MODEL_URL = `sim/bronchoscope_web.xml?v=${ASSET_VERSION}`;
 const LUNG_URL = `sim/part/bronchus.stl?v=${ASSET_VERSION}`;
 const MODEL_ASSETS = [
@@ -25,6 +25,9 @@ const CONTACT_INSERTION_RATE_MPS = 0.06;
 const CONTACT_INSERTION_LEAD_M = 0.0002;
 const FREE_VELOCITY_DAMPING_PER_S = 12;
 const CONTACT_VELOCITY_DAMPING_PER_S = 42;
+const AIRWAY_PENETRATION_LIMIT_M = 0.00004;
+const AIRWAY_CONTROL_SCALE = 0.78;
+const AIRWAY_LIMIT_NOTICE_MS = 650;
 const MAIN_RENDER_INTERVAL_MS = 1000 / 30;
 const TIP_RENDER_INTERVAL_MS = 1000 / 15;
 const CONTROL_SLEEP_DELAY_MS = 700;
@@ -62,6 +65,8 @@ const state = {
   passiveDebugLocked: false,
   physicsSleeping: false,
   lastControlChange: 0,
+  lastControlSource: null,
+  boundaryLimitedUntil: 0,
 };
 
 let mujoco;
@@ -97,6 +102,8 @@ let mainRenderDeadline = 0;
 let tipRenderDeadline = 0;
 let motorHistory = [];
 let nonAirwayContactBaseline = 0;
+let stepQposSnapshot;
+let stepQvelSnapshot;
 
 function setLoad(percent, title, detail) {
   $("#load-progress").style.width = `${percent}%`;
@@ -329,6 +336,7 @@ class CompassControl {
     this.pad = $(pad);
     this.knob = this.pad.querySelector(".compass-knob");
     this.vector = state[stateKey];
+    this.stateKey = stateKey;
     this.angleOutput = $(angleOutput);
     this.directionOutput = $(directionOutput);
     this.pointerId = null;
@@ -373,8 +381,11 @@ class CompassControl {
     this.set((event.clientX - box.left - radius) / (radius * 0.78), (event.clientY - box.top - radius) / (radius * 0.78));
   }
 
-  set(x, y) {
-    wakePhysics();
+  set(x, y, fromBoundaryLimiter = false) {
+    if (!fromBoundaryLimiter) {
+      wakePhysics();
+      state.lastControlSource = this.stateKey;
+    }
     const magnitude = Math.hypot(x, y);
     const scale = magnitude > 1 ? 1 / magnitude : 1;
     this.vector.x = x * scale;
@@ -544,6 +555,8 @@ function resetSimulation() {
   state.insertionCommand = 0;
   state.physicsSleeping = false;
   state.lastControlChange = performance.now();
+  state.lastControlSource = null;
+  state.boundaryLimitedUntil = 0;
   distalFeedback.set(0, 0);
   filteredActiveRotation.set(0, 0, 0);
   motorHistory = [];
@@ -656,13 +669,14 @@ function setLungEnabled(enabled) {
     ? "AIRWAY WALL CONSTRAINT ACTIVE"
     : "AIRWAY MODEL DISABLED";
   $("#airway-mode-note").innerHTML = enabled
-    ? "<b>Airway boundary enforced</b><br>The visible airway and its reinforced collision boundary are active. Turning the airway off removes both."
+    ? "<b>Directional airway boundary enforced</b><br>Commands that deepen wall penetration are range-limited. Inward bending, tangential motion, and retraction remain available."
     : "<b>Airway model disabled</b><br>Both the red surface and its collision boundary are removed, leaving the robot unobstructed for inspection.";
 }
 
 function setupControls() {
   $("#insertion").addEventListener("input", (event) => {
     wakePhysics();
+    state.lastControlSource = "insertion";
     const millimetres = Number(event.target.value);
     state.insertionTarget = millimetres / 1000;
     $("#insertion-value").textContent = `${millimetres.toFixed(1)} mm`;
@@ -763,9 +777,68 @@ function updateTelemetry(now) {
   $("#contacts").textContent = String(data.ncon);
 }
 
-function airwayContactCount() {
-  if (!state.lungVisible || lungFlexId < 0) return 0;
-  return Math.max(0, data.ncon - nonAirwayContactBaseline);
+function contactBufferView(buffer) {
+  if (!buffer) return null;
+  return typeof buffer.GetView === "function" ? buffer.GetView() : buffer;
+}
+
+function airwayContactMetrics() {
+  if (!state.lungVisible || lungFlexId < 0 || !data.contact) {
+    return { count: 0, penetration: 0 };
+  }
+  let count = 0;
+  let penetration = 0;
+  const available = typeof data.contact.size === "function" ? data.contact.size() : data.ncon;
+  const contactCount = Math.min(data.ncon, available);
+  for (let index = 0; index < contactCount; index += 1) {
+    const contact = data.contact.get(index);
+    if (!contact) continue;
+    const flex = contactBufferView(contact.flex);
+    if (!flex || (Number(flex[0]) !== lungFlexId && Number(flex[1]) !== lungFlexId)) continue;
+    count += 1;
+    const distance = Number(contact.dist);
+    if (Number.isFinite(distance)) penetration = Math.max(penetration, -distance);
+  }
+  return { count, penetration };
+}
+
+function restorePhysicsStep(time) {
+  data.qpos.set(stepQposSnapshot);
+  data.qvel.set(stepQvelSnapshot);
+  data.time = time;
+  data.qvel.fill(0);
+  data.qacc.fill(0);
+  data.qacc_warmstart.fill(0);
+  data.qfrc_applied.fill(0);
+  mujoco.mj_forward(model, data);
+}
+
+function limitBoundaryControl(actualInsertion, now, advancingInsertion) {
+  state.boundaryLimitedUntil = now + AIRWAY_LIMIT_NOTICE_MS;
+  const source = state.lastControlSource;
+  if (advancingInsertion) {
+    state.insertionCommand = actualInsertion;
+    state.insertionTarget = actualInsertion;
+    const millimetres = actualInsertion * 1000;
+    $("#insertion").value = String(millimetres);
+    $("#insertion-value").textContent = `${millimetres.toFixed(1)} mm`;
+  } else if (source === "proximal" || source === "distal") {
+    const requested = state[source];
+    const compass = source === "proximal" ? proximalCompass : distalCompass;
+    compass.set(
+      requested.x * AIRWAY_CONTROL_SCALE,
+      requested.y * AIRWAY_CONTROL_SCALE,
+      true,
+    );
+    distalFeedback.multiplyScalar(0.35);
+  } else {
+    state.insertionCommand = actualInsertion;
+    state.insertionTarget = actualInsertion;
+    const millimetres = actualInsertion * 1000;
+    $("#insertion").value = String(millimetres);
+    $("#insertion-value").textContent = `${millimetres.toFixed(1)} mm`;
+  }
+  applyControls();
 }
 
 function normalizedMotorSignals() {
@@ -857,7 +930,8 @@ function animate(now) {
     const actualInsertion = insertionQposAddress >= 0
       ? data.qpos[insertionQposAddress]
       : state.insertionCommand;
-    const inAirwayContact = airwayContactCount() > 0;
+    const initialAirwayContact = airwayContactMetrics();
+    const inAirwayContact = initialAirwayContact.count > 0;
     const retracting = state.insertionTarget < actualInsertion - 0.0002;
     const insertionRate = inAirwayContact && !retracting
       ? CONTACT_INSERTION_RATE_MPS
@@ -880,13 +954,17 @@ function animate(now) {
 
     const steps = Math.max(1, Math.min(24, Math.round(elapsed / model.opt.timestep)));
     let contactedDuringStep = inAirwayContact;
+    let boundaryLimited = false;
+    stepQposSnapshot.set(data.qpos);
+    stepQvelSnapshot.set(data.qvel);
+    const timeBeforeFrame = data.time;
     for (let index = 0; index < steps; index += 1) {
       data.qfrc_applied.fill(0);
       enforcePassiveBaseGuide();
       applyPassiveFollower();
       mujoco.mj_step(model, data);
       enforcePassiveBaseGuide();
-      if (airwayContactCount() > 0) {
+      if (state.lungVisible && data.ncon > nonAirwayContactBaseline) {
         contactedDuringStep = true;
         if (!retracting && insertionQposAddress >= 0) {
           state.insertionCommand = Math.min(
@@ -906,6 +984,25 @@ function animate(now) {
         && data.qvel[insertionDofAddress] < 0) {
         data.qvel[insertionDofAddress] = 0;
       }
+    }
+
+    const contactAfterFrame = airwayContactMetrics();
+    const enteredForbiddenSpace = state.lungVisible
+      && !retracting
+      && contactAfterFrame.penetration > AIRWAY_PENETRATION_LIMIT_M
+      && (initialAirwayContact.penetration <= AIRWAY_PENETRATION_LIMIT_M
+        || contactAfterFrame.penetration >= initialAirwayContact.penetration);
+    if (enteredForbiddenSpace) {
+      restorePhysicsStep(timeBeforeFrame);
+      const insertion = insertionQposAddress >= 0
+        ? data.qpos[insertionQposAddress]
+        : state.insertionCommand;
+      const advancingInsertion = state.insertionTarget > insertion + 0.0002;
+      limitBoundaryControl(insertion, now, advancingInsertion);
+      contactedDuringStep = true;
+      boundaryLimited = true;
+    } else if (contactAfterFrame.count > 0) {
+      contactedDuringStep = true;
     }
 
     const dampingRate = contactedDuringStep
@@ -929,6 +1026,8 @@ function animate(now) {
       && controlQuietFor >= CONTROL_SLEEP_DELAY_MS
       && controlQuietFor >= FREE_SLEEP_TIMEOUT_MS) {
       sleepPhysics(actualAfterStep);
+    } else if (boundaryLimited || now < state.boundaryLimitedUntil) {
+      setRuntime("Airway boundary limiting", "ready");
     } else if (contactedDuringStep) {
       setRuntime("Contact / controllable", "ready");
     } else {
@@ -983,6 +1082,8 @@ async function initialize() {
     await stageModelFiles();
     model = mujoco.MjModel.loadFromXML("/working/bronchoscope_web.xml");
     data = new mujoco.MjData(model);
+    stepQposSnapshot = new Float64Array(model.nq);
+    stepQvelSnapshot = new Float64Array(model.nv);
     mujoco.mj_resetDataKeyframe(model, data, 0);
     mujoco.mj_forward(model, data);
     state.lastControlChange = performance.now();

@@ -53,7 +53,7 @@
       <div class="section-title">
         <p class="kicker">INTERACTIVE DEMO</p>
         <h2>Operate the physics-grounded MuJoCo twin</h2>
-        <p>Drag either compass to command the two bending segments, then use the insertion slider to advance the robot. When enabled, the non-convex airway wall acts as a reinforced physical boundary.</p>
+        <p>Drag either compass to command the two bending segments, then use the insertion slider to advance the robot. When enabled, the non-convex airway wall rejects commands that would deepen penetration while preserving inward motion and retraction.</p>
       </div>
 
       <div class="sim-window" id="sim-window">
@@ -275,6 +275,6 @@
     <p>Interactive physics-grounded simulation for a dual-segment robotic bronchoscope.</p>
     <a href="https://continuumroboticslab.github.io/opencr-mujoco/">Design reference</a>
   </footer>
-  <script type="module" src="simulator.js?v=23"></script>
+  <script type="module" src="simulator.js?v=24"></script>
 </body>
 </html>
