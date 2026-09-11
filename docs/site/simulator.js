@@ -1,10 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
-import loadMujoco from "https://cdn.jsdelivr.net/npm/mujoco-js@0.0.7/dist/mujoco_wasm.js";
+import loadMujoco from "./vendor/mujoco_wasm.js";
 
 const $ = (selector) => document.querySelector(selector);
-const ASSET_VERSION = "21";
+const ASSET_VERSION = "22";
 const MODEL_URL = `sim/bronchoscope_web.xml?v=${ASSET_VERSION}`;
 const LUNG_URL = `sim/part/bronchus.stl?v=${ASSET_VERSION}`;
 const MODEL_ASSETS = [
