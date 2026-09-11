@@ -4,7 +4,7 @@ import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import loadMujoco from "./vendor/mujoco_wasm.js";
 
 const $ = (selector) => document.querySelector(selector);
-const ASSET_VERSION = "22";
+const ASSET_VERSION = "23";
 const MODEL_URL = `sim/bronchoscope_web.xml?v=${ASSET_VERSION}`;
 const LUNG_URL = `sim/part/bronchus.stl?v=${ASSET_VERSION}`;
 const MODEL_ASSETS = [
@@ -21,15 +21,14 @@ const TENDON_RADIUS = 0.00154;
 const INSERTION_LIMIT_M = 0.577;
 const INSERTION_RATE_MPS = 0.20;
 const FREE_INSERTION_LEAD_M = 0.008;
-const CONTACT_INSERTION_RATE_MPS = 0.20;
-const CONTACT_INSERTION_LEAD_M = 0.0015;
+const CONTACT_INSERTION_RATE_MPS = 0.06;
+const CONTACT_INSERTION_LEAD_M = 0.0002;
 const FREE_VELOCITY_DAMPING_PER_S = 12;
-const CONTACT_VELOCITY_DAMPING_PER_S = 55;
+const CONTACT_VELOCITY_DAMPING_PER_S = 42;
 const MAIN_RENDER_INTERVAL_MS = 1000 / 30;
 const TIP_RENDER_INTERVAL_MS = 1000 / 15;
 const CONTROL_SLEEP_DELAY_MS = 700;
 const FREE_SLEEP_TIMEOUT_MS = 2500;
-const CONTACT_SAFE_HISTORY_SIZE = 4;
 const MOTOR_HISTORY_SECONDS = 4;
 const MOTOR_SAMPLE_INTERVAL_MS = 40;
 const MOTOR_COLORS = ["#e85bbd", "#ff8a55", "#f2c14e", "#5ed39a", "#4ecdc4", "#5c91ff", "#b07cff"];
@@ -62,10 +61,6 @@ const state = {
   insertionCommand: 0,
   passiveDebugLocked: false,
   physicsSleeping: false,
-  contactLatched: false,
-  contactFreeQpos: [],
-  contactFreeIndex: 0,
-  contactFreeCount: 0,
   lastControlChange: 0,
 };
 
@@ -398,7 +393,6 @@ const proximalCompass = new CompassControl("#proximal-pad", "proximal", "#proxim
 const distalCompass = new CompassControl("#distal-pad", "distal", "#distal-angle", "#distal-direction");
 
 function wakePhysics() {
-  state.contactLatched = false;
   state.physicsSleeping = false;
   state.lastControlChange = performance.now();
   if (state.ready && !state.paused) setRuntime("Running live", "ready");
@@ -413,36 +407,6 @@ function sleepPhysics(actualInsertion) {
   applyControls();
   mujoco.mj_forward(model, data);
   setRuntime("Settled", "ready");
-}
-
-function saveContactFreeState() {
-  if (!data) return;
-  if (state.contactFreeQpos.length !== CONTACT_SAFE_HISTORY_SIZE
-    || state.contactFreeQpos[0]?.length !== data.qpos.length) {
-    state.contactFreeQpos = Array.from(
-      { length: CONTACT_SAFE_HISTORY_SIZE },
-      () => new Float64Array(data.qpos.length),
-    );
-    state.contactFreeIndex = 0;
-    state.contactFreeCount = 0;
-  }
-  state.contactFreeQpos[state.contactFreeIndex].set(data.qpos);
-  state.contactFreeIndex = (state.contactFreeIndex + 1) % CONTACT_SAFE_HISTORY_SIZE;
-  state.contactFreeCount = Math.min(CONTACT_SAFE_HISTORY_SIZE, state.contactFreeCount + 1);
-}
-
-function latchAirwayContact() {
-  if (state.contactFreeCount > 0) {
-    const oldestSafeIndex = state.contactFreeCount < CONTACT_SAFE_HISTORY_SIZE
-      ? 0
-      : state.contactFreeIndex;
-    data.qpos.set(state.contactFreeQpos[oldestSafeIndex]);
-  }
-  state.contactLatched = true;
-  const actualInsertion = insertionQposAddress >= 0
-    ? data.qpos[insertionQposAddress]
-    : state.insertionCommand;
-  sleepPhysics(actualInsertion);
 }
 
 function actuatorId(name) {
@@ -579,9 +543,6 @@ function resetSimulation() {
   state.insertionTarget = 0;
   state.insertionCommand = 0;
   state.physicsSleeping = false;
-  state.contactLatched = false;
-  state.contactFreeIndex = 0;
-  state.contactFreeCount = 0;
   state.lastControlChange = performance.now();
   distalFeedback.set(0, 0);
   filteredActiveRotation.set(0, 0, 0);
@@ -593,7 +554,6 @@ function resetSimulation() {
   applyControls();
   enforcePassiveBaseGuide();
   mujoco.mj_forward(model, data);
-  saveContactFreeState();
   updateTipCamera();
   focusMainCameraOnTip();
 }
@@ -688,12 +648,6 @@ function setLungEnabled(enabled) {
     model.flex_conaffinity[lungFlexId] = enabled ? lungCollisionMasks.conaffinity : 0;
   }
   mujoco.mj_forward(model, data);
-  state.contactLatched = false;
-  if (!enabled || airwayContactCount() === 0) {
-    saveContactFreeState();
-  } else {
-    latchAirwayContact();
-  }
   $("#toggle-lung").textContent = `Airway model: ${enabled ? "on" : "off"}`;
   $("#toggle-lung").classList.toggle("active", enabled);
   $("#toggle-lung").setAttribute("aria-pressed", String(enabled));
@@ -904,62 +858,81 @@ function animate(now) {
       ? data.qpos[insertionQposAddress]
       : state.insertionCommand;
     const inAirwayContact = airwayContactCount() > 0;
-    if (inAirwayContact) {
-      latchAirwayContact();
-    } else {
-      const insertionRate = state.lungVisible ? CONTACT_INSERTION_RATE_MPS : INSERTION_RATE_MPS;
-      const insertionLead = state.lungVisible ? CONTACT_INSERTION_LEAD_M : FREE_INSERTION_LEAD_M;
-      const maximumStep = insertionRate * elapsed;
-      state.insertionCommand += THREE.MathUtils.clamp(
-        state.insertionTarget - state.insertionCommand,
-        -maximumStep,
-        maximumStep,
-      );
-      state.insertionCommand = THREE.MathUtils.clamp(
-        state.insertionCommand,
-        Math.max(0, actualInsertion - insertionLead),
-        Math.min(INSERTION_LIMIT_M, actualInsertion + insertionLead),
-      );
-      applyControls();
-      const steps = Math.max(1, Math.min(24, Math.round(elapsed / model.opt.timestep)));
-      for (let index = 0; index < steps; index += 1) {
-        saveContactFreeState();
-        data.qfrc_applied.fill(0);
-        enforcePassiveBaseGuide();
-        applyPassiveFollower();
-        mujoco.mj_step(model, data);
-        enforcePassiveBaseGuide();
-        if (airwayContactCount() > 0) {
-          latchAirwayContact();
-          break;
-        }
-      }
-      if (!state.contactLatched) {
-        const dampingRate = state.lungVisible
-          ? CONTACT_VELOCITY_DAMPING_PER_S
-          : FREE_VELOCITY_DAMPING_PER_S;
-        const damping = Math.exp(-dampingRate * elapsed);
-        for (let index = 0; index < data.qvel.length; index += 1) {
-          const insertionRebound = index === insertionDofAddress
-            && data.qvel[index] < 0
-            && state.insertionTarget > actualInsertion;
-          if (index !== insertionDofAddress || insertionRebound) {
-            data.qvel[index] *= damping;
-            if (Math.abs(data.qvel[index]) < 1e-6) data.qvel[index] = 0;
-          }
-        }
+    const retracting = state.insertionTarget < actualInsertion - 0.0002;
+    const insertionRate = inAirwayContact && !retracting
+      ? CONTACT_INSERTION_RATE_MPS
+      : INSERTION_RATE_MPS;
+    const insertionLead = inAirwayContact && !retracting
+      ? CONTACT_INSERTION_LEAD_M
+      : FREE_INSERTION_LEAD_M;
+    const maximumStep = insertionRate * elapsed;
+    state.insertionCommand += THREE.MathUtils.clamp(
+      state.insertionTarget - state.insertionCommand,
+      -maximumStep,
+      maximumStep,
+    );
+    state.insertionCommand = THREE.MathUtils.clamp(
+      state.insertionCommand,
+      Math.max(0, actualInsertion - insertionLead),
+      Math.min(INSERTION_LIMIT_M, actualInsertion + insertionLead),
+    );
+    applyControls();
 
-        const actualAfterStep = insertionQposAddress >= 0
-          ? data.qpos[insertionQposAddress]
-          : state.insertionCommand;
-        const controlQuietFor = now - state.lastControlChange;
-        const insertionSettled = Math.abs(state.insertionTarget - actualAfterStep) < 0.0005;
-        if (insertionSettled
-          && controlQuietFor >= CONTROL_SLEEP_DELAY_MS
-          && controlQuietFor >= FREE_SLEEP_TIMEOUT_MS) {
-          sleepPhysics(actualAfterStep);
+    const steps = Math.max(1, Math.min(24, Math.round(elapsed / model.opt.timestep)));
+    let contactedDuringStep = inAirwayContact;
+    for (let index = 0; index < steps; index += 1) {
+      data.qfrc_applied.fill(0);
+      enforcePassiveBaseGuide();
+      applyPassiveFollower();
+      mujoco.mj_step(model, data);
+      enforcePassiveBaseGuide();
+      if (airwayContactCount() > 0) {
+        contactedDuringStep = true;
+        if (!retracting && insertionQposAddress >= 0) {
+          state.insertionCommand = Math.min(
+            state.insertionCommand,
+            data.qpos[insertionQposAddress] + CONTACT_INSERTION_LEAD_M,
+          );
+          data.ctrl[actuatorIds[6]] = state.insertionCommand;
         }
       }
+
+      const insertion = insertionQposAddress >= 0
+        ? data.qpos[insertionQposAddress]
+        : state.insertionCommand;
+      if (contactedDuringStep
+        && insertionDofAddress >= 0
+        && state.insertionTarget >= insertion
+        && data.qvel[insertionDofAddress] < 0) {
+        data.qvel[insertionDofAddress] = 0;
+      }
+    }
+
+    const dampingRate = contactedDuringStep
+      ? CONTACT_VELOCITY_DAMPING_PER_S
+      : FREE_VELOCITY_DAMPING_PER_S;
+    const damping = Math.exp(-dampingRate * elapsed);
+    for (let index = 0; index < data.qvel.length; index += 1) {
+      if (index !== insertionDofAddress || contactedDuringStep) {
+        data.qvel[index] *= damping;
+        if (Math.abs(data.qvel[index]) < 1e-6) data.qvel[index] = 0;
+      }
+    }
+    if (contactedDuringStep) data.qacc_warmstart.fill(0);
+
+    const actualAfterStep = insertionQposAddress >= 0
+      ? data.qpos[insertionQposAddress]
+      : state.insertionCommand;
+    const controlQuietFor = now - state.lastControlChange;
+    const insertionSettled = Math.abs(state.insertionTarget - actualAfterStep) < 0.0005;
+    if (insertionSettled
+      && controlQuietFor >= CONTROL_SLEEP_DELAY_MS
+      && controlQuietFor >= FREE_SLEEP_TIMEOUT_MS) {
+      sleepPhysics(actualAfterStep);
+    } else if (contactedDuringStep) {
+      setRuntime("Contact / controllable", "ready");
+    } else {
+      setRuntime("Running live", "ready");
     }
   }
   const renderMain = now >= mainRenderDeadline;
@@ -1047,7 +1020,6 @@ async function initialize() {
     state.ready = true;
     applyControls();
     setLungEnabled(false);
-    saveContactFreeState();
     modelView.sync();
     tendonView.sync();
     updateTipCamera();
