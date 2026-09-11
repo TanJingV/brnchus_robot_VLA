@@ -1,66 +1,44 @@
 # Bronchus Robot VLA
 
-A two-section tendon-driven continuum bronchoscope research platform with
-MuJoCo simulation, manual control, centerline navigation and synchronized
-multimodal recording.
+A research platform for a tendon-driven continuum bronchoscope. The repository
+is organised as three standalone systems. Project code never crosses a system
+boundary; recorded data is the only shared interface.
 
-**Project website:** https://tanjingv.github.io/brnchus_robot_VLA/
+## Systems
 
-## Research status
+| Directory | Purpose | Launch command |
+| --- | --- | --- |
+| `mujoco_desktop_system/` | MuJoCo model, desktop workbench, controllers and navigation | `python -m mujoco_desktop_system` |
+| `d435_capture_system/` | Independent D435, side-camera, Trio and NDI acquisition | `python -m d435_capture_system` |
+| `d435_seven_marker_system/` | Independent seven-marker reconstruction and training workstation | `python -m d435_seven_marker_system` |
 
-This project supports an unpublished ICRA-oriented manuscript. The formal
-paper title, authors, abstract and publication link are pending confirmation.
-The website describes implemented capabilities and model geometry; it does
-not claim validated clinical performance or a published navigation benchmark.
+Each system contains its own application entry point, source modules,
+configuration, runtime resources, tests, dependency list and documentation.
+The D435 capture system does not load MuJoCo, and the MuJoCo desktop does not
+open or import the D435 application.
 
-## Latest features
+## Data interface
 
-- Two active continuum sections, six tendons, a passive insertion carrier and
-  a bronchial environment in MuJoCo.
-- Compass/gamepad steering, insertion controls, robot initial-pose adjustment,
-  passive-joint debug locking and a rigid base-guide constraint.
-- Real/simulation environment selection, tip-camera and virtual-camera views.
-- Synchronized camera, MuJoCo and control-panel recordings, with per-frame
-  timing and tip, middle-platform and master/slave-connection poses.
-- D435 capture and seven-marker 3D fusion modules in `Visual_information`.
+Generated and experimental data lives outside all three systems:
 
-## Run
-
-The desktop application is developed on Windows. In the configured
-`Bronchoscope` Conda environment:
-
-```powershell
-conda activate Bronchoscope
-python -m UI
-```
-
-The launcher resolves the application under `window/`. Select simulation in
-the startup dialog to use the MuJoCo environment. Hardware mode additionally
-requires the device drivers, NDI tracker dependencies and Trio controller API.
-
-The existing research environment is not yet packaged as a portable installer.
-See [model documentation](two_segment_tdcr_opencr/README.md),
-[visual processing](Visual_information/README.md), and
-[capture dependencies](Visual_information/requirements-d435.txt) for module
-requirements. Optional third-party checkpoints are obtained separately; see
-[model weights](Visual_information/models/README.md).
-
-## Repository map
-
-| Directory | Purpose |
+| Directory | Contents |
 | --- | --- |
-| `UI/`, `window/` | Application entry points and desktop workbench |
-| `two_segment_tdcr_opencr/` | Parametric model generation and controllers |
-| `meshes/`, `urdf/` | Robot and airway model assets |
-| `agent_nav/` | Navigation and learning utilities |
-| `Visual_information/` | Capture, segmentation and 3D tracking |
-| `docs/site/` | Static project website and interactive MuJoCo simulation |
+| `data/d435_sessions/` | Raw and synchronised D435 acquisition sessions |
+| `data/seven_marker_outputs/` | Reconstructed seven-marker trajectories and videos |
+| `data/mujoco_recordings/` | Desktop workbench and simulation recordings |
+| `data/exports/` | Derived trajectory exports |
 
-Local recordings, environments and Python caches are excluded from the source
-release. Existing large legacy segmentation weights are retained at
-`Visual_information/models/legacy_unet/1205weights_49.pth`.
+These directories are local experiment data and are ignored by Git. The
+seven-marker system reads D435 sessions through the data directory rather than
+importing acquisition-system code.
 
-## Website
+## Documentation and website
+
+**Project Page:** [https://tanjingv.github.io/brnchus_robot_VLA/#simulation](https://tanjingv.github.io/brnchus_robot_VLA/#simulation)
+
+System-specific instructions are stored in each system's `README.md`. The
+static project website remains under `docs/site/` and can stage a browser model
+from the standalone MuJoCo system:
 
 ```powershell
 python docs/site/build_web_sim.py
@@ -68,15 +46,5 @@ python docs/site/build_assets.py
 python -m http.server 8765 --directory docs/site
 ```
 
-Open http://localhost:8765. The first visit downloads MuJoCo WebAssembly,
-Three.js and the high-resolution lung STL. The simulation-only web build
-contains the project two-section tendon model, dual compass controls, insertion
-actuator, tip camera, lung visibility control, pause and reset. Hardware drivers
-and real sensors remain in the desktop application. GitHub Pages deploys only
-`docs/site` through `.github/workflows/project-pages.yml`.
-
-## Acknowledgements
-
-The continuum discretization and spatial-tendon modeling approach is informed
+The continuum discretisation and spatial-tendon modelling approach is informed
 by [OpenCR MuJoCo](https://github.com/ContinuumRoboticsLab/opencr-mujoco).
-Third-party models, libraries and hardware SDKs retain their respective terms.
