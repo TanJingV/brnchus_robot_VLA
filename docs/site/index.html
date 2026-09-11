@@ -68,7 +68,7 @@
             <div class="scene-stage" id="scene-stage" tabindex="0" aria-label="Interactive MuJoCo three-dimensional simulation">
               <canvas id="mujoco-canvas"></canvas>
               <div class="scene-badge"><span>LIVE</span> MuJoCo / WebAssembly</div>
-              <div class="boundary-badge" id="boundary-status"><i></i><span id="boundary-label">AIRWAY WALL CONSTRAINT ACTIVE</span></div>
+              <div class="boundary-badge disabled" id="boundary-status"><i></i><span id="boundary-label">AIRWAY MODEL DISABLED</span></div>
               <div class="view-help">Left drag: orbit / Right drag: pan / Wheel: zoom</div>
               <div class="load-panel" id="load-panel">
                 <div class="loader-mark"><span></span><span></span><span></span></div>
@@ -136,14 +136,14 @@
             <div class="button-grid">
               <button class="control-button primary" id="pause-sim" disabled>Pause simulation</button>
               <button class="control-button" id="reset-sim" disabled>Reset model</button>
-              <button class="control-button active" id="toggle-lung" aria-pressed="true" disabled>Airway model: on</button>
+              <button class="control-button" id="toggle-lung" aria-pressed="false" disabled>Airway model: off</button>
               <button class="control-button" id="toggle-passive-lock" aria-pressed="false" disabled>Passive section: follow</button>
               <button class="control-button" id="focus-tip" disabled>Follow tip</button>
             </div>
 
             <div class="runtime-note">
               <span class="pulse"></span>
-              <p id="airway-mode-note"><b>Airway boundary enforced</b><br>The visible airway and its reinforced collision boundary are active. Turning the airway off removes both.</p>
+              <p id="airway-mode-note"><b>Airway model disabled</b><br>Both the red surface and its collision boundary are removed, leaving the robot unobstructed for inspection.</p>
             </div>
           </aside>
         </div>
@@ -275,6 +275,6 @@
     <p>Interactive physics-grounded simulation for a dual-segment robotic bronchoscope.</p>
     <a href="https://continuumroboticslab.github.io/opencr-mujoco/">Design reference</a>
   </footer>
-  <script type="module" src="simulator.js?v=20"></script>
+  <script type="module" src="simulator.js?v=21"></script>
 </body>
 </html>
