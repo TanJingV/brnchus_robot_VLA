@@ -2,9 +2,9 @@
 
 ## 建模、运动学、动力学、碰撞与控制原理
 
-> **对应实现**：`brnchus_robot_VLA` 当前集成模型  
-> **主模型**：[`meshes/cable_robot_bronch_final_seg2.xml`](../../meshes/cable_robot_bronch_final_seg2.xml)  
-> **主动段配置**：[`two_segment_tdcr_opencr/config.json`](../../two_segment_tdcr_opencr/config.json)  
+> **对应实现**：`brnchus_robot` 当前集成模型  
+> **主模型**：[`mujoco_desktop_system/meshes/cable_robot_bronch_final_seg2.xml`](../../mujoco_desktop_system/meshes/cable_robot_bronch_final_seg2.xml)  
+> **主动段配置**：[`mujoco_desktop_system/two_segment_tdcr_opencr/config.json`](../../mujoco_desktop_system/two_segment_tdcr_opencr/config.json)  
 > **版本日期**：2026-07-24
 
 ---
@@ -954,7 +954,7 @@ X 轴误差没有像 Y/Z 一样显著下降，主要峰值位于插入和弯曲�
 
 ```powershell
 & 'D:\anaconda3\envs\mujoco\python.exe' `
-  .\two_segment_tdcr_opencr\generate_model.py
+  .\mujoco_desktop_system\two_segment_tdcr_opencr\generate_model.py
 ```
 
 ### 12.2 集成到完整支气管镜
@@ -973,14 +973,14 @@ X 轴误差没有像 Y/Z 一样显著下降，主要峰值位于插入和弯曲�
 
 ```powershell
 & 'D:\anaconda3\envs\mujoco\python.exe' `
-  .\two_segment_tdcr_opencr\integrate_bronchoscope.py
+  .\mujoco_desktop_system\two_segment_tdcr_opencr\integrate_bronchoscope.py
 ```
 
 ### 12.3 逆运动学轨迹验证
 
 ```powershell
 & 'D:\anaconda3\envs\mujoco\python.exe' `
-  .\two_segment_tdcr_opencr\ik_trajectory_validation.py
+  .\mujoco_desktop_system\two_segment_tdcr_opencr\ik_trajectory_validation.py
 ```
 
 默认行为：
@@ -997,7 +997,7 @@ X 轴误差没有像 Y/Z 一样显著下降，主要峰值位于插入和弯曲�
 
 ```powershell
 & 'D:\anaconda3\envs\mujoco\python.exe' `
-  .\two_segment_tdcr_opencr\ik_trajectory_validation.py `
+  .\mujoco_desktop_system\two_segment_tdcr_opencr\ik_trajectory_validation.py `
   --ik-compensation-iterations 0
 ```
 
@@ -1005,8 +1005,8 @@ X 轴误差没有像 Y/Z 一样显著下降，主要峰值位于插入和弯曲�
 
 ```powershell
 & 'D:\anaconda3\envs\mujoco\python.exe' `
-  .\two_segment_tdcr_opencr\ik_trajectory_validation.py `
-  --output .\two_segment_tdcr_opencr\my_ik_result.csv
+  .\mujoco_desktop_system\two_segment_tdcr_opencr\ik_trajectory_validation.py `
+  --output .\mujoco_desktop_system\two_segment_tdcr_opencr\my_ik_result.csv
 ```
 
 默认运行不会在项目文件夹中创建或覆盖 IK 测试数据文件。
@@ -1015,7 +1015,7 @@ X 轴误差没有像 Y/Z 一样显著下降，主要峰值位于插入和弯曲�
 
 ```powershell
 & 'D:\anaconda3\envs\mujoco\python.exe' `
-  .\two_segment_tdcr_opencr\ik_trajectory_validation.py `
+  .\mujoco_desktop_system\two_segment_tdcr_opencr\ik_trajectory_validation.py `
   --with-lung
 ```
 
@@ -1025,19 +1025,19 @@ X 轴误差没有像 Y/Z 一样显著下降，主要峰值位于插入和弯曲�
 
 | 文件 | 主要职责 |
 |---|---|
-| [`config.json`](../../two_segment_tdcr_opencr/config.json) | 主动段尺寸、离散数量、等效材料、tendon 和仿真参数的唯一配置入口 |
-| [`generate_model.py`](../../two_segment_tdcr_opencr/generate_model.py) | 根据配置计算梁参数并生成独立双段 TDCR MJCF |
-| [`two_segment_tdcr.xml`](../../two_segment_tdcr_opencr/two_segment_tdcr.xml) | 自动生成的独立双段 TDCR 模型 |
-| [`integrate_bronchoscope.py`](../../two_segment_tdcr_opencr/integrate_bronchoscope.py) | 替换旧主动末端、刚性拼接被动段、生成肺壁非凸碰撞和光滑 capsule |
-| [`cable_robot_bronch_final_seg2.xml`](../../meshes/cable_robot_bronch_final_seg2.xml) | 当前完整支气管机器人、肺壁和 actuator 的最终集成模型 |
-| [`tendon_compass_control.py`](../../two_segment_tdcr_opencr/tendon_compass_control.py) | 将两个二维罗盘输入转换为六根物理 tendon 的绝对目标长度 |
-| [`passive_joint_control.py`](../../two_segment_tdcr_opencr/passive_joint_control.py) | 运行时缩放 29 个被动 ball joint 的等效刚度和阻尼 |
-| [`contact_stabilization.py`](../../two_segment_tdcr_opencr/contact_stabilization.py) | 仅在主动段真实接触肺壁时临时增加数值 armature，离开接触后恢复 |
-| [`ik_trajectory_validation.py`](../../two_segment_tdcr_opencr/ik_trajectory_validation.py) | PCC 正/逆运动学、七轴输出、三轮仿射标定、阻尼雅可比外环和可视化验证 |
-| [`validate_model.py`](../../two_segment_tdcr_opencr/validate_model.py) | 检查独立 TDCR XML、数值稳定性和分段控制选择性 |
-| [`validate_integrated_model.py`](../../two_segment_tdcr_opencr/validate_integrated_model.py) | 检查完整模型、刚性拼接、六绳路径、相机、接触和短时稳定性 |
-| [`validate_compass_control.py`](../../two_segment_tdcr_opencr/validate_compass_control.py) | 验证罗盘到真实 tendon 长度控制的方向、速度和稳态误差 |
-| [`界面1220…仿真版.py`](<../../window/界面1220（可以使用版本+数据记录）双探子版_仿真版.py>) | 主 PyQt UI、MuJoCo 仿真循环、双罗盘、被动参数控件和接触正则器调用 |
+| [`config.json`](../../mujoco_desktop_system/two_segment_tdcr_opencr/config.json) | 主动段尺寸、离散数量、等效材料、tendon 和仿真参数的唯一配置入口 |
+| [`generate_model.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/generate_model.py) | 根据配置计算梁参数并生成独立双段 TDCR MJCF |
+| [`two_segment_tdcr.xml`](../../mujoco_desktop_system/two_segment_tdcr_opencr/two_segment_tdcr.xml) | 自动生成的独立双段 TDCR 模型 |
+| [`integrate_bronchoscope.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/integrate_bronchoscope.py) | 替换旧主动末端、刚性拼接被动段、生成肺壁非凸碰撞和光滑 capsule |
+| [`cable_robot_bronch_final_seg2.xml`](../../mujoco_desktop_system/meshes/cable_robot_bronch_final_seg2.xml) | 当前完整支气管机器人、肺壁和 actuator 的最终集成模型 |
+| [`tendon_compass_control.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/tendon_compass_control.py) | 将两个二维罗盘输入转换为六根物理 tendon 的绝对目标长度 |
+| [`passive_joint_control.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/passive_joint_control.py) | 运行时缩放 29 个被动 ball joint 的等效刚度和阻尼 |
+| [`contact_stabilization.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/contact_stabilization.py) | 仅在主动段真实接触肺壁时临时增加数值 armature，离开接触后恢复 |
+| [`ik_trajectory_validation.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/ik_trajectory_validation.py) | PCC 正/逆运动学、七轴输出、三轮仿射标定、阻尼雅可比外环和可视化验证 |
+| [`validate_model.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/validate_model.py) | 检查独立 TDCR XML、数值稳定性和分段控制选择性 |
+| [`validate_integrated_model.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/validate_integrated_model.py) | 检查完整模型、刚性拼接、六绳路径、相机、接触和短时稳定性 |
+| [`validate_compass_control.py`](../../mujoco_desktop_system/two_segment_tdcr_opencr/validate_compass_control.py) | 验证罗盘到真实 tendon 长度控制的方向、速度和稳态误差 |
+| [`界面1220…仿真版.py`](<../../mujoco_desktop_system/window/界面1220（可以使用版本+数据记录）双探子版_仿真版.py>) | 主 PyQt UI、MuJoCo 仿真循环、双罗盘、被动参数控件和接触正则器调用 |
 
 ---
 
@@ -1114,7 +1114,7 @@ $$
 5. MuJoCo Documentation. [XML Reference: flexcomp](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-flexcomp). `flexcomp` 宏、flex 顶点和接触建模。
 6. Webster, R. J. III, and Jones, B. A. [Design and Kinematic Modeling of Constant Curvature Continuum Robots: A Review](https://doi.org/10.1177/0278364910368147). *The International Journal of Robotics Research*, 29(13), 1661–1683, 2010.
 7. Renda, F., et al. [Cosserat Rod-Based Dynamic Modeling of Tendon-Driven Continuum Robots: A Tutorial](https://ieeexplore.ieee.org/document/9420666/). *IEEE Robotics & Automation Magazine*, 2021.
-8. 当前项目源代码与参数文件：[`two_segment_tdcr_opencr/`](../../two_segment_tdcr_opencr/) 和 [`meshes/cable_robot_bronch_final_seg2.xml`](../../meshes/cable_robot_bronch_final_seg2.xml)。
+8. 当前项目源代码与参数文件：[`mujoco_desktop_system/two_segment_tdcr_opencr/`](../../mujoco_desktop_system/two_segment_tdcr_opencr/) 和 [`mujoco_desktop_system/meshes/cable_robot_bronch_final_seg2.xml`](../../mujoco_desktop_system/meshes/cable_robot_bronch_final_seg2.xml)。
 
 ---
 

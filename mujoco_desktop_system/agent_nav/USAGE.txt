@@ -1,0 +1,71 @@
+支气管机器人 MuJoCo 自主导航（不修改原仿真文件）
+
+0) 打开 UI 控制中心
+   python -m UI
+   python -m UI.ui_control_center
+   python UI\run_dualscope_sim_ui.py
+
+   UI 可统一启动:
+   - PPO 训练 / 推理
+   - 多模态策略示教采集 / SFT 训练 / DAgger 回灌 / 部署推理
+   - 手动控制仿真界面
+
+1) 安装依赖
+   pip install -r agent_nav\requirements.txt
+
+2) 配置目标点
+   编辑 agent_nav\target_points.json
+   格式:
+   {
+     "target_points": [[x, y, z], [x, y, z], ...]
+   }
+
+3) 训练模型
+   python -m agent_nav.train_nav_agent --timesteps 400000
+   python -m agent_nav.train_nav_agent --timesteps 400000 --preview
+
+   常用参数:
+   --targets agent_nav\target_points.json
+   --model-out agent_nav\models\ppo_bronch_nav
+   --preview                 # 实时训练画面
+   --preview-freq 10         # 每10步刷新一次（可调）
+   --preview-camera tip_camera  # 可改为 agentview/topview/sideview
+
+4) 部署/推理
+   python -m agent_nav.run_nav_agent --show
+
+   常用参数:
+   --model agent_nav\models\ppo_bronch_nav.zip
+   --target-index 0
+   --episodes 3
+
+说明:
+- 训练与部署已锁定使用: meshes\cable_robot_bronch_final_seg2.xml
+- 控制量为 3 维动作: [弯曲x, 弯曲y, 插入]
+- 奖励函数包含: 到目标距离、前进增益、控制惩罚、接触惩罚、成功奖励
+- 成功判据默认阈值为 4 mm（可在 bronchoscope_nav_env.py 中调整）
+
+================ 多模态策略微调与后训练流程 ================
+
+1) 采集示教数据（启发式专家）
+   python -m agent_nav.collect_vla_data --episodes 40 --show
+
+2) 进行多模态策略 SFT 训练
+   python -m agent_nav.train_vla_sft --data-pattern "agent_nav\\data\\*.npz" --epochs 20 --clip-model ViT-H-14 --clip-pretrained laion2b_s32b_b79k
+
+3) DAgger 回灌数据
+   python -m agent_nav.dagger_collect --model agent_nav\models\vla_policy.pt --episodes 20 --show
+
+4) 合并数据再次 SFT（后训练）
+   python -m agent_nav.train_vla_sft --data-pattern "agent_nav\\data\\*.npz" --epochs 20
+
+5) 多模态策略部署推理
+   python -m agent_nav.run_vla_agent --model agent_nav\models\vla_policy.pt --show
+
+说明:
+- `collect_vla_data.py` 与 `dagger_collect.py` 都使用你锁定环境采集。
+- 策略基座: OpenCLIP (ViT-H-14) 视觉+文本编码器 + FT-Transformer 风格状态编码器 + 新融合策略头。
+- 策略输入为: 图像 + 状态向量 + 任务文本，输出连续动作。
+- 这是可运行的第一版多模态策略流程，后续可再接入离线RL(IQL/CQL)做进一步后训练。
+- 首次训练会自动下载 OpenCLIP 预训练权重（需要网络）。
+
